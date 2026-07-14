@@ -1,0 +1,18 @@
+[Unit]
+Description=Polybot Cloud-Sync (spiegelt Paper-Trades nach Supabase fürs Dashboard)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/polyarbi
+ExecStart=/root/polyarbi/bot-env/bin/python3 -m polybot.main_cloud_sync
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+Environment=CLOUD_SYNC_INTERVAL_SEC=30
+# SUPABASE_URL und SUPABASE_SERVICE_ROLE_KEY kommen aus polybot/.env
+# (dort eintragen, nicht hier — siehe polybot/.env.example).
+
+[Install]
+WantedBy=multi-user.target
