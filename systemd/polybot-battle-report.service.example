@@ -1,0 +1,11 @@
+[Unit]
+Description=Polybot Strategy Battle Report
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/polyarbi
+ExecStart=/root/polyarbi/bot-env/bin/python3 -m polybot.battle_report
+Environment=PYTHONUNBUFFERED=1

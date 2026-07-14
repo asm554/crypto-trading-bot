@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+bot-env/
+.pytest_cache/
+
+# Secrets
+.env
+polybot/.env
+*.key
+*.pem
+*.secret
+secrets.*
+auth.json
+
+# Runtime data / logs
+logs/
+*.log
+polybot/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Backups / local artifacts
+*.bak
+*.bak-*
+*.backup-*
+*.tar.gz
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Node / Next.js (Dashboard)
+node_modules/
+.next/
+.vercel/
+next-env.d.ts

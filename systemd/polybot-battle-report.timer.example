@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Polybot Strategy Battle Report Timer
+
+[Timer]
+OnCalendar=*-*-* 19:00:00
+Persistent=true
+Unit=polybot-battle-report.service
+
+[Install]
+WantedBy=timers.target
