@@ -1,19 +1,11 @@
 import "server-only";
 
-import fs from "node:fs";
-import path from "node:path";
-import { createRequire } from "node:module";
-import type BetterSqlite3 from "better-sqlite3";
+// Liest die Bot-Daten aus Supabase (Cloud-Datenbank), damit das Dashboard sowohl
+// lokal als auch online (z.B. Vercel) dieselben Live-Daten zeigt. Der Bot selbst
+// schreibt dorthin über polybot/cloud_sync.py.
 
-// better-sqlite3 ist ein natives Modul. Wir laden es erst dann, wenn die
-// Datenbank-Datei wirklich existiert (lokal beim laufenden Bot). So läuft die
-// Seite auch dort, wo es die Datei nicht gibt (z. B. Vercel), ohne Absturz.
-const requireCjs = createRequire(import.meta.url);
-
-// Die Bot-Daten liegen im übergeordneten Python-Projekt.
-const DATA_DIR = path.join(process.cwd(), "..", "polybot", "data");
-const DB_PATH = path.join(DATA_DIR, "paper_trades.db");
-const CONFIG_PATH = path.join(process.cwd(), "..", "polybot", "config.json");
+const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
@@ -24,7 +16,6 @@ type BotMeta = {
   name: string;
   nickname: string;
   prefix: string;
-  stateFile: string;
   tagline: string;
 };
 
@@ -34,7 +25,6 @@ export const BOTS: BotMeta[] = [
     name: "DCA",
     nickname: "Der Brave",
     prefix: "DCA_",
-    stateFile: "dca_state.json",
     tagline: "Kauft regelmäßig kleine Beträge und sitzt Rücksetzer aus.",
   },
   {
@@ -42,7 +32,6 @@ export const BOTS: BotMeta[] = [
     name: "Momentum",
     nickname: "Der Zocker",
     prefix: "MOM_",
-    stateFile: "momentum_state.json",
     tagline: "Springt auf Coins auf, die gerade stark steigen.",
   },
   {
@@ -50,7 +39,6 @@ export const BOTS: BotMeta[] = [
     name: "Mean-Reversion",
     nickname: "Der Contrarian",
     prefix: "REV_",
-    stateFile: "meanrev_state.json",
     tagline: "Kauft stark gefallene Coins in der Hoffnung auf Erholung.",
   },
 ];
@@ -74,6 +62,7 @@ export type BotSummary = {
 
 export type TradeRow = {
   id: number;
+  botKey: BotKey | "?";
   bot: string;
   pair: string;
   side: string;
@@ -87,25 +76,48 @@ export type TradeRow = {
 
 export type EquityPoint = { t: number; dca: number | null; momentum: number | null; meanrev: number | null };
 
-function openDb(): BetterSqlite3.Database | null {
-  if (!fs.existsSync(DB_PATH)) return null;
+type RawTrade = {
+  id: number;
+  timestamp: number;
+  market_question: string;
+  side: string;
+  size: number;
+  price: number;
+  status: string;
+  resolved_at: number | null;
+  real_pnl: number | null;
+  unrealized_pnl: number | null;
+};
+
+type RawSnapshot = { id: number; bot: string; ts: number; equity_eur: number; cash_eur: number };
+
+export function isCloudConfigured(): boolean {
+  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+}
+
+async function fetchTable<T>(table: string, query: string): Promise<T[]> {
+  if (!isCloudConfigured()) return [];
   try {
-    const Database = requireCjs("better-sqlite3") as typeof BetterSqlite3;
-    const db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
-    db.pragma("busy_timeout = 3000");
-    return db;
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`, {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    return (await res.json()) as T[];
   } catch {
-    return null;
+    return [];
   }
 }
 
-function readState(file: string): Record<string, unknown> {
-  try {
-    const raw = fs.readFileSync(path.join(DATA_DIR, file), "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
+async function fetchAllTrades(): Promise<RawTrade[]> {
+  return fetchTable<RawTrade>("paper_trades", "select=*&order=timestamp.desc&limit=5000");
+}
+
+async function fetchAllSnapshots(): Promise<RawSnapshot[]> {
+  return fetchTable<RawSnapshot>("equity_snapshots", "select=*&order=ts.asc&limit=20000");
 }
 
 function num(v: unknown, fallback = 0): number {
@@ -113,135 +125,78 @@ function num(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? (n as number) : fallback;
 }
 
-export function getBotSummaries(): BotSummary[] {
-  const db = openDb();
-  const summaries: BotSummary[] = [];
+export async function getBotSummaries(): Promise<BotSummary[]> {
+  const [trades, snapshots] = await Promise.all([fetchAllTrades(), fetchAllSnapshots()]);
 
-  for (const bot of BOTS) {
-    const state = readState(bot.stateFile);
-    const cash = num(state.capital_remaining, START_CAPITAL);
-    const portfolio = (state.portfolio as Record<string, unknown>) ?? {};
-    let stateTrades = num(state.trade_count, 0);
+  return BOTS.map((bot) => {
+    const botTrades = trades.filter((t) => t.market_question.startsWith(bot.prefix));
+    const openTrades = botTrades.filter((t) => t.resolved_at == null);
+    const doneTrades = botTrades.filter((t) => t.resolved_at != null);
 
-    let openPositions = Object.keys(portfolio).length;
-    let realized = 0;
-    let unrealized = 0;
-    let tradeCount = stateTrades;
-    let equity = cash;
-    let lastActivity: number | null = null;
-    let hasData = Object.keys(state).length > 0;
+    const unrealized = openTrades.reduce((s, t) => s + num(t.unrealized_pnl), 0);
+    const realized = doneTrades.reduce((s, t) => s + num(t.real_pnl), 0);
 
-    if (db) {
-      const like = `${bot.prefix}%`;
-      const open = db
-        .prepare(
-          "SELECT COUNT(*) c, COALESCE(SUM(unrealized_pnl),0) u FROM paper_trades WHERE market_question LIKE ? AND resolved_at IS NULL",
-        )
-        .get(like) as { c: number; u: number };
-      const done = db
-        .prepare(
-          "SELECT COUNT(*) c, COALESCE(SUM(real_pnl),0) r FROM paper_trades WHERE market_question LIKE ? AND resolved_at IS NOT NULL",
-        )
-        .get(like) as { c: number; r: number };
-      openPositions = open.c;
-      unrealized = num(open.u);
-      realized = num(done.r);
-      tradeCount = open.c + done.c || stateTrades;
+    const botSnaps = snapshots.filter((s) => s.bot === bot.key);
+    const latestSnap = botSnaps[botSnaps.length - 1];
 
-      const snap = db
-        .prepare("SELECT equity_eur, ts FROM equity_snapshots WHERE bot = ? ORDER BY ts DESC LIMIT 1")
-        .get(bot.key) as { equity_eur: number; ts: number } | undefined;
-      if (snap) {
-        equity = num(snap.equity_eur);
-        lastActivity = num(snap.ts);
-      }
-      const lastTrade = db
-        .prepare("SELECT MAX(timestamp) t FROM paper_trades WHERE market_question LIKE ?")
-        .get(like) as { t: number | null };
-      if (lastTrade.t) {
-        lastActivity = Math.max(lastActivity ?? 0, num(lastTrade.t)) || lastActivity;
-        hasData = true;
-      }
-    }
+    const equity = latestSnap ? num(latestSnap.equity_eur) : START_CAPITAL;
+    const cash = latestSnap ? num(latestSnap.cash_eur) : START_CAPITAL;
+
+    const lastTradeTs = botTrades.reduce((max, t) => Math.max(max, num(t.timestamp)), 0);
+    const lastActivity = Math.max(lastTradeTs, latestSnap ? num(latestSnap.ts) : 0) || null;
 
     const totalPnl = equity - START_CAPITAL;
-    summaries.push({
+    return {
       key: bot.key,
       name: bot.name,
       nickname: bot.nickname,
       tagline: bot.tagline,
       equityEur: round2(equity),
       cashEur: round2(cash),
-      openPositions,
+      openPositions: openTrades.length,
       realizedPnlEur: round2(realized),
       unrealizedPnlEur: round2(unrealized),
       totalPnlEur: round2(totalPnl),
       pnlPct: round2((totalPnl / START_CAPITAL) * 100),
-      tradeCount,
+      tradeCount: botTrades.length,
       lastActivity,
-      hasData,
-    });
-  }
-
-  db?.close();
-  return summaries;
-}
-
-export function getRecentTrades(limit = 25): TradeRow[] {
-  const db = openDb();
-  if (!db) return [];
-  const prefixes = BOTS.map((b) => `market_question LIKE '${b.prefix}%'`).join(" OR ");
-  const rows = db
-    .prepare(
-      `SELECT id, market_question, side, size, price, timestamp, status, resolved_at, real_pnl
-       FROM paper_trades WHERE ${prefixes} ORDER BY timestamp DESC LIMIT ?`,
-    )
-    .all(limit) as Array<{
-    id: number;
-    market_question: string;
-    side: string;
-    size: number;
-    price: number;
-    timestamp: number;
-    status: string;
-    resolved_at: number | null;
-    real_pnl: number | null;
-  }>;
-  db.close();
-
-  return rows.map((r) => {
-    const meta = BOTS.find((b) => r.market_question.startsWith(b.prefix));
-    return {
-      id: r.id,
-      botKey: meta?.key ?? "?",
-      bot: meta?.nickname ?? "?",
-      pair: meta ? r.market_question.slice(meta.prefix.length) : r.market_question,
-      side: r.side,
-      sizeEur: round2(num(r.size) * num(r.price)),
-      price: num(r.price),
-      timestamp: num(r.timestamp),
-      status: r.status,
-      resolved: r.resolved_at != null,
-      pnlEur: r.real_pnl == null ? null : round2(num(r.real_pnl)),
+      hasData: botTrades.length > 0 || botSnaps.length > 0,
     };
   });
 }
 
-/** Alle Trades (mit Deckel), für die eigene Trades-Seite mit Filtern. */
-export function getAllTrades(): TradeRow[] {
-  return getRecentTrades(1000);
+function toTradeRow(r: RawTrade): TradeRow {
+  const meta = BOTS.find((b) => r.market_question.startsWith(b.prefix));
+  return {
+    id: r.id,
+    botKey: meta?.key ?? "?",
+    bot: meta?.nickname ?? "?",
+    pair: meta ? r.market_question.slice(meta.prefix.length) : r.market_question,
+    side: r.side,
+    sizeEur: round2(num(r.size) * num(r.price)),
+    price: num(r.price),
+    timestamp: num(r.timestamp),
+    status: r.status,
+    resolved: r.resolved_at != null,
+    pnlEur: r.real_pnl == null ? null : round2(num(r.real_pnl)),
+  };
 }
 
-export function getEquitySeries(): EquityPoint[] {
-  const db = openDb();
-  if (!db) return [];
-  const rows = db
-    .prepare("SELECT bot, ts, equity_eur FROM equity_snapshots ORDER BY ts ASC")
-    .all() as Array<{ bot: string; ts: number; equity_eur: number }>;
-  db.close();
+export async function getRecentTrades(limit = 25): Promise<TradeRow[]> {
+  const trades = await fetchAllTrades();
+  return trades.slice(0, limit).map(toTradeRow);
+}
 
+/** Alle Trades (mit Deckel), für die eigene Trades-Seite mit Filtern. */
+export async function getAllTrades(): Promise<TradeRow[]> {
+  const trades = await fetchAllTrades();
+  return trades.map(toTradeRow);
+}
+
+export async function getEquitySeries(): Promise<EquityPoint[]> {
+  const snapshots = await fetchAllSnapshots();
   const byTime = new Map<number, EquityPoint>();
-  for (const r of rows) {
+  for (const r of snapshots) {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point = byTime.get(bucket) ?? { t: bucket, dca: null, momentum: null, meanrev: null };
     if (r.bot === "dca" || r.bot === "momentum" || r.bot === "meanrev") {
@@ -257,22 +212,12 @@ export type StrategyGroup = { key: BotKey; name: string; nickname: string; param
 export type SettingsView = {
   fees: StrategyParam[];
   strategies: StrategyGroup[];
-  dbExists: boolean;
 };
 
 export function getSettings(): SettingsView {
-  let cfg: Record<string, unknown> = {};
-  try {
-    cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-  } catch {
-    cfg = {};
-  }
-  const takerPct = (num(cfg.crypto_taker_fee_rate, 0.004) * 100).toFixed(2);
-  const makerPct = (num(cfg.crypto_maker_fee_rate, 0.0016) * 100).toFixed(2);
-
   const fees: StrategyParam[] = [
-    { label: "Gebühr pro Kauf/Verkauf", value: `${takerPct} %`, hint: "Wird bei jedem Trade abgezogen (Kraken Taker)." },
-    { label: "Gebühr (Maker)", value: `${makerPct} %`, hint: "Falls als Maker gehandelt wird." },
+    { label: "Gebühr pro Kauf/Verkauf", value: "0.40 %", hint: "Wird bei jedem Trade abgezogen (Kraken Taker)." },
+    { label: "Gebühr (Maker)", value: "0.16 %", hint: "Falls als Maker gehandelt wird." },
     { label: "Modus", value: "Papierhandel", hint: "Es wird kein echtes Geld eingesetzt." },
     { label: "Startkapital je Bot", value: `${START_CAPITAL} €` },
   ];
@@ -322,7 +267,7 @@ export function getSettings(): SettingsView {
     },
   ];
 
-  return { fees, strategies, dbExists: fs.existsSync(DB_PATH) };
+  return { fees, strategies };
 }
 
 function round2(n: number): number {

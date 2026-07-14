@@ -2,7 +2,10 @@ import os
 import json
 from dotenv import load_dotenv
 
-load_dotenv()
+# Pfad explizit angeben statt automatischer Suche: load_dotenv() ohne Pfad sucht
+# ausgehend vom Arbeitsverzeichnis nach oben und findet polybot/.env nicht, wenn
+# der Bot (wie dokumentiert) aus dem Projekt-Hauptordner gestartet wird.
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 # ==========================================
 # SECRETS (.env)

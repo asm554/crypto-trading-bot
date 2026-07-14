@@ -22,6 +22,11 @@ export function pnlTone(n: number): "up" | "down" | "flat" {
   return "flat";
 }
 
+export function pnlToneClass(n: number): string {
+  const t = pnlTone(n);
+  return t === "up" ? "text-emerald-500" : t === "down" ? "text-red-500" : "text-muted-foreground";
+}
+
 export function relTime(ts: number | null): string {
   if (!ts) return "noch keine Aktivität";
   const diff = Date.now() / 1000 - ts;

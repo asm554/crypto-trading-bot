@@ -2,13 +2,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import type { BotSummary } from "@/lib/bots";
-import { eur, signedEur, signedPct, pnlTone, relTime } from "@/lib/format";
+import { eur, signedEur, signedPct, pnlToneClass, relTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-function toneClass(n: number) {
-  const t = pnlTone(n);
-  return t === "up" ? "text-emerald-500" : t === "down" ? "text-red-500" : "text-muted-foreground";
-}
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
@@ -41,7 +36,7 @@ export function BotCard({ bot }: { bot: BotSummary }) {
         <div className="mt-4 flex items-end justify-between">
           <div>
             <div className="text-2xl font-semibold tabular-nums">{eur(bot.equityEur)}</div>
-            <div className={cn("text-sm font-medium", toneClass(bot.totalPnlEur))}>
+            <div className={cn("text-sm font-medium", pnlToneClass(bot.totalPnlEur))}>
               {signedEur(bot.totalPnlEur)} ({signedPct(bot.pnlPct)})
             </div>
           </div>
@@ -53,8 +48,8 @@ export function BotCard({ bot }: { bot: BotSummary }) {
 
       <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 py-4 sm:grid-cols-4">
         <Stat label="Bargeld" value={eur(bot.cashEur)} />
-        <Stat label="Gewinn realisiert" value={signedEur(bot.realizedPnlEur)} tone={toneClass(bot.realizedPnlEur)} />
-        <Stat label="noch offen" value={signedEur(bot.unrealizedPnlEur)} tone={toneClass(bot.unrealizedPnlEur)} />
+        <Stat label="Gewinn realisiert" value={signedEur(bot.realizedPnlEur)} tone={pnlToneClass(bot.realizedPnlEur)} />
+        <Stat label="noch offen" value={signedEur(bot.unrealizedPnlEur)} tone={pnlToneClass(bot.unrealizedPnlEur)} />
         <Stat label="Trades gesamt" value={String(bot.tradeCount)} />
       </CardContent>
     </Card>

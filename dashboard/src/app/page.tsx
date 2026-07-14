@@ -12,20 +12,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { eur, signedEur, signedPct, pnlTone, clockTime } from "@/lib/format";
+import { eur, signedEur, signedPct, pnlToneClass, clockTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-function toneClass(n: number) {
-  const t = pnlTone(n);
-  return t === "up" ? "text-emerald-500" : t === "down" ? "text-red-500" : "text-muted-foreground";
-}
-
-export default function OverviewPage() {
-  const bots = getBotSummaries();
-  const equity = getEquitySeries();
-  const trades = getRecentTrades(20);
+export default async function OverviewPage() {
+  const [bots, equity, trades] = await Promise.all([
+    getBotSummaries(),
+    getEquitySeries(),
+    getRecentTrades(20),
+  ]);
 
   const totalEquity = bots.reduce((s, b) => s + b.equityEur, 0);
   const totalPnl = bots.reduce((s, b) => s + b.totalPnlEur, 0);
@@ -52,7 +49,7 @@ export default function OverviewPage() {
           </div>
           <div>
             <div className="text-xs text-muted-foreground">Gewinn/Verlust gesamt</div>
-            <div className={cn("text-2xl font-semibold tabular-nums", toneClass(totalPnl))}>
+            <div className={cn("text-2xl font-semibold tabular-nums", pnlToneClass(totalPnl))}>
               {signedEur(totalPnl)}{" "}
               <span className="text-base">({signedPct((totalPnl / invested) * 100)})</span>
             </div>
@@ -118,7 +115,7 @@ export default function OverviewPage() {
                         {t.resolved ? "geschlossen" : "offen"}
                       </Badge>
                     </TableCell>
-                    <TableCell className={cn("text-right font-mono tabular-nums", t.pnlEur != null ? toneClass(t.pnlEur) : "text-muted-foreground")}>
+                    <TableCell className={cn("text-right font-mono tabular-nums", t.pnlEur != null ? pnlToneClass(t.pnlEur) : "text-muted-foreground")}>
                       {t.pnlEur == null ? "—" : signedEur(t.pnlEur)}
                     </TableCell>
                   </TableRow>

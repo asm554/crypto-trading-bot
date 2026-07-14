@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, SlidersHorizontal, Bot } from "lucide-react";
+import { LayoutDashboard, SlidersHorizontal, Bot, ArrowLeftRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
   { href: "/", label: "Übersicht", icon: LayoutDashboard },
+  { href: "/trades", label: "Trades", icon: ArrowLeftRight },
   { href: "/settings", label: "Einstellungen", icon: SlidersHorizontal },
 ];
 
