@@ -1,9 +1,26 @@
 import asyncio
 import pytest
 
-from polybot.dca_strategy import DCABot, rolling_24h_change_pct
+from polybot.dca_strategy import DCABot, extract_quote, rolling_24h_change_pct
 import polybot.dca_strategy as dca_strategy
 import polybot.paper_db as paper_db
+
+
+def test_extract_quote_reads_bid_and_ask():
+    data = {"b": ["99.5", "1", "1"], "a": ["100.5", "1", "1"]}
+    assert extract_quote(data, 100.0) == (99.5, 100.5)
+
+
+def test_extract_quote_falls_back_to_last_without_quote():
+    # Kraken-Antwort ohne a/b -> Fill = Last (altes Verhalten, kein Spread).
+    assert extract_quote({"c": ["100.0"]}, 100.0) == (100.0, 100.0)
+
+
+def test_extract_quote_falls_back_on_unusable_quote():
+    # Verdrehtes Buch (ask < bid) und nicht-positive Preise sind unbrauchbar.
+    assert extract_quote({"b": ["101"], "a": ["99"]}, 100.0) == (100.0, 100.0)
+    assert extract_quote({"b": ["0"], "a": ["100.5"]}, 100.0) == (100.0, 100.0)
+    assert extract_quote({"b": ["abc"], "a": ["100.5"]}, 100.0) == (100.0, 100.0)
 
 
 def test_rolling_24h_change_pct_uses_close_24_bars_back(monkeypatch):
@@ -73,6 +90,48 @@ def test_execute_dca_round_deploys_only_one_round_budget(monkeypatch, tmp_path):
     assert invested == pytest.approx(10.0, rel=1e-6)
     assert bot.total_invested == pytest.approx(10.0, rel=1e-6)
     assert bot.capital_remaining == pytest.approx(90.0, rel=1e-6)
+
+
+def test_execute_dca_round_fills_at_ask_not_last(monkeypatch, tmp_path):
+    """Gekauft wird zum Ask; der DB-Preis muss der Fill sein, nicht der Last.
+
+    Sonst driftet ``_rebuild_state_from_db`` (size * price) vom investierten
+    Betrag weg.
+    """
+    async def fake_fetch_ticker_data(_pairs):
+        # Vollständiges Payload, sonst scheitert _ticker_snapshot und fällt auf
+        # active_pairs zurück – dann käme die Quote nie an. Last 100, Bid 98,
+        # Ask 102; Open 102 ergibt einen Dip von 1.96% > min_edge_pct (1.0).
+        return {
+            "SOLEUR": {
+                "o": "102",
+                "c": ["100", "1.0"],
+                "h": ["103", "104"],
+                "l": ["97", "96"],
+                "v": ["1000", "2000"],
+                "p": ["100", "100"],
+                "b": ["98", "1", "1"],
+                "a": ["102", "1", "1"],
+            }
+        }
+
+    monkeypatch.setattr(dca_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
+
+    bot = _bind_bot_to_tmp_storage(
+        DCABot(initial_capital_eur=100.0, top_n=1, rounds_target=10, paper_mode=True),
+        tmp_path,
+    )
+    bot.active_pairs = [{"pair": "SOLEUR", "score": 2.0, "change_pct": -1.0, "last_price": 100.0}]
+
+    trades = asyncio.run(bot.execute_dca_round())
+
+    assert len(trades) == 1
+    assert trades[0]["price"] == pytest.approx(102.0)
+    amount = trades[0]["amount_eur"]
+    assert trades[0]["coins_bought"] == pytest.approx(amount / 102.0)
+    # size * price muss den Einsatz exakt reproduzieren.
+    assert trades[0]["coins_bought"] * trades[0]["price"] == pytest.approx(amount)
+    assert bot.portfolio["SOLEUR"]["cost_basis"] == pytest.approx(amount)
 
 
 def test_restore_state_from_db_rebuilds_open_positions_and_cash(monkeypatch, tmp_path):

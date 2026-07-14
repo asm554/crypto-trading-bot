@@ -13,7 +13,7 @@ from pathlib import Path
 
 from polybot import config
 from polybot import paper_db as paper_db_module
-from polybot.dca_strategy import CANDIDATE_PAIRS, PAIR_MAP, fetch_ticker_data, rolling_24h_change_pct
+from polybot.dca_strategy import CANDIDATE_PAIRS, PAIR_MAP, extract_quote, fetch_ticker_data, rolling_24h_change_pct
 from polybot.paper_db import get_open_trades_by_prefix, log_equity_snapshot, log_paper_trade, resolve_trade
 
 logger = logging.getLogger(__name__)
@@ -153,7 +153,8 @@ class MomentumBot:
             volume_eur = volume_coin * vwap
             change_pct = (last - open_price) / open_price * 100
             score = change_pct * math.log10(max(volume_eur, 1.0))
-            return {"pair": pair, "last_price": last, "change_pct": change_pct, "volume_eur": volume_eur, "score": score, "high": high, "low": low}
+            bid, ask = extract_quote(data, last)
+            return {"pair": pair, "last_price": last, "bid": bid, "ask": ask, "change_pct": change_pct, "volume_eur": volume_eur, "score": score, "high": high, "low": low}
         except Exception:
             return None
 
@@ -186,16 +187,18 @@ class MomentumBot:
             trade_id = int(pos.get("trade_id") or 0)
             row = open_rows.get(trade_id)
             shares = float(pos.get("shares") or (row or {}).get("size") or 0.0)
+            # Trigger oben entscheidet auf Last, verkauft wird zum Bid.
+            exit_price = float(snap.get("bid") or last)
             entry_cost = shares * entry
-            current_value = shares * last
+            current_value = shares * exit_price
             fee = config.CRYPTO_TAKER_FEE_RATE
             real_pnl = current_value - entry_cost - entry_cost * fee - current_value * fee
-            await resolve_trade(trade_id, last, round(real_pnl, 6))
+            await resolve_trade(trade_id, exit_price, round(real_pnl, 6))
             self.capital_remaining += entry_cost + real_pnl
             self.cooldowns[pair] = now + self.cooldown_sec
             self.portfolio.pop(pair, None)
             resolved.append({"pair": pair, "reason": reason, "pnl": real_pnl})
-            logger.info("✅ MOM Exit %s: %s @ %.6f€ | PnL %+0.4f€", pair, reason, last, real_pnl)
+            logger.info("✅ MOM Exit %s: %s @ %.6f€ (Last %.6f€) | PnL %+0.4f€", pair, reason, exit_price, last, real_pnl)
         if resolved:
             self._save_state()
         return resolved
@@ -242,14 +245,16 @@ class MomentumBot:
                 logger.info("⏭️ MOM: Cash %.2f€ reicht nicht", self.capital_remaining)
                 break
             pair = snap["pair"]
-            price = float(snap["last_price"])
+            last = float(snap["last_price"])
+            # Einstiegsfilter oben entscheidet auf Last, gekauft wird zum Ask.
+            price = float(snap.get("ask") or last)
             shares = amount / price
             trade_id = await log_paper_trade(f"{PREFIX}{pair}", "buy", shares, price, snap["change_pct"] / 100, "paper")
             self.capital_remaining -= amount
-            self.portfolio[pair] = {"shares": shares, "cost_basis": amount, "entry_price": price, "entry_ts": time.time(), "peak_price": price, "trade_id": trade_id}
+            self.portfolio[pair] = {"shares": shares, "cost_basis": amount, "entry_price": price, "entry_ts": time.time(), "peak_price": last, "trade_id": trade_id}
             self.trade_count += 1
             opened.append({"pair": pair, "amount": amount, "price": price})
-            logger.info("📝 MOM Entry %s: %.2f€ @ %.6f€ | 24h %+0.2f%%", pair, amount, price, snap["change_pct"])
+            logger.info("📝 MOM Entry %s: %.2f€ @ %.6f€ (Last %.6f€) | 24h %+0.2f%%", pair, amount, price, last, snap["change_pct"])
         self._save_state()
         return opened
 
@@ -262,7 +267,8 @@ class MomentumBot:
             snap = self._snapshot_for_pair(pair, ticker)
             if not snap:
                 continue
-            current_value = float(pos["shares"]) * float(snap["last_price"])
+            # Mark-to-Market simuliert den Verkauf, also zum Bid bewerten.
+            current_value = float(pos["shares"]) * float(snap.get("bid") or snap["last_price"])
             sell_fee = current_value * fee
             entry_cost = float(pos["cost_basis"])
             mtm += current_value - sell_fee
