@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/polyarbi
-ExecStart=/root/polyarbi/bot-env/bin/python3 -m polybot.main_daytrade
+WorkingDirectory=/root/crypto-trading-bot
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_daytrade
 Restart=always
 RestartSec=30
 Environment=PYTHONUNBUFFERED=1
