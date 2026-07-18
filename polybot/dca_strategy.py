@@ -92,7 +92,9 @@ def extract_quote(data: dict, last_price: float) -> tuple[float, float]:
 # kommt aus stündlichen OHLC-Kerzen und wird kurz gecacht, um das Rate-Limit zu
 # schonen (der Cache wird von allen drei Bots gemeinsam genutzt).
 ROLLING_24H_TTL_SEC = 900  # 15 Min
-_rolling_change_cache: dict[str, tuple[float, float]] = {}  # pair -> (fetched_at, change_pct)
+# Cache-Key enthält lookback_bars/interval_min, damit ein 4h-Fenster (z.B. für
+# den Daytrader) nicht mit dem 24h-Fenster desselben Paars kollidiert.
+_rolling_change_cache: dict[tuple[str, int, int], tuple[float, float]] = {}
 
 
 async def _fetch_ohlc_closes(pair: str, interval_min: int = 60) -> list[float]:
@@ -119,27 +121,37 @@ async def _fetch_ohlc_closes(pair: str, interval_min: int = 60) -> list[float]:
     return []
 
 
-async def rolling_24h_change_pct(pair: str, ttl_sec: int = ROLLING_24H_TTL_SEC) -> float | None:
-    """Echte rollierende 24h-Kursänderung in % (aus 60m-OHLC), gecacht.
+async def rolling_change_pct(
+    pair: str, lookback_bars: int = 24, interval_min: int = 60, ttl_sec: int = ROLLING_24H_TTL_SEC
+) -> float | None:
+    """Echte rollierende Kursänderung in % über ``lookback_bars`` Kerzen à
+    ``interval_min`` Minuten (aus OHLC), gecacht.
 
     Gibt None zurück wenn keine ausreichenden OHLC-Daten vorliegen – Aufrufer
     sollen dann konservativ handeln (z.B. Einstieg überspringen).
     """
     now = time.time()
-    cached = _rolling_change_cache.get(pair)
+    cache_key = (pair, lookback_bars, interval_min)
+    cached = _rolling_change_cache.get(cache_key)
     if cached and (now - cached[0]) < ttl_sec:
         return cached[1]
-    closes = await _fetch_ohlc_closes(pair, 60)
+    closes = await _fetch_ohlc_closes(pair, interval_min)
     if len(closes) < 2:
         return None
     last_close = closes[-1]
-    # Kerze ~24h zurück (24 Stunden-Bars); Fallback auf älteste vorhandene.
-    ref_close = closes[max(0, len(closes) - 1 - 24)]
+    # Kerze lookback_bars zurück; Fallback auf älteste vorhandene.
+    ref_close = closes[max(0, len(closes) - 1 - lookback_bars)]
     if ref_close <= 0:
         return None
     change = (last_close - ref_close) / ref_close * 100
-    _rolling_change_cache[pair] = (now, change)
+    _rolling_change_cache[cache_key] = (now, change)
     return change
+
+
+async def rolling_24h_change_pct(pair: str, ttl_sec: int = ROLLING_24H_TTL_SEC) -> float | None:
+    """Rückwärtskompatibler Wrapper: 24 Bars à 60min = 24h. Signatur bleibt
+    unverändert für dca/momentum/meanrev und deren Tests."""
+    return await rolling_change_pct(pair, lookback_bars=24, interval_min=60, ttl_sec=ttl_sec)
 
 
 async def rank_pairs_by_opportunity(candidates: list[str], top_n: int = 5) -> list[dict]:

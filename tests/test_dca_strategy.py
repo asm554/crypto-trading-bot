@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 
-from polybot.dca_strategy import DCABot, extract_quote, rolling_24h_change_pct
+from polybot.dca_strategy import DCABot, extract_quote, rolling_24h_change_pct, rolling_change_pct
 import polybot.dca_strategy as dca_strategy
 import polybot.paper_db as paper_db
 
@@ -47,6 +47,51 @@ def test_rolling_24h_change_pct_returns_none_without_data(monkeypatch):
 
     monkeypatch.setattr(dca_strategy, "_fetch_ohlc_closes", fake_closes)
     assert asyncio.run(rolling_24h_change_pct("SOLEUR")) is None
+
+
+def test_rolling_24h_change_pct_matches_generalized_wrapper(monkeypatch):
+    """rolling_24h_change_pct muss weiterhin exakt lookback_bars=24,
+    interval_min=60 entsprechen (Rückwärtskompatibilität für dca/momentum/meanrev)."""
+    dca_strategy._rolling_change_cache.clear()
+    closes = [100.0] * 100
+    closes[-1] = 108.0
+    closes[-1 - 24] = 100.0
+
+    async def fake_closes(_pair, interval_min=60):
+        assert interval_min == 60
+        return closes
+
+    monkeypatch.setattr(dca_strategy, "_fetch_ohlc_closes", fake_closes)
+    val_24h = asyncio.run(rolling_24h_change_pct("SOLEUR"))
+
+    dca_strategy._rolling_change_cache.clear()
+    val_generic = asyncio.run(rolling_change_pct("SOLEUR", lookback_bars=24, interval_min=60))
+
+    assert val_24h == pytest.approx(8.0)
+    assert val_24h == pytest.approx(val_generic)
+
+
+def test_rolling_change_pct_different_lookback_bars_use_independent_cache(monkeypatch):
+    """Ein 4h-Fenster darf nicht mit dem 24h-Fenster desselben Paars kollidieren."""
+    dca_strategy._rolling_change_cache.clear()
+    closes = [100.0] * 100
+    closes[-1] = 110.0
+    closes[-1 - 24] = 100.0   # 24h zurück: unverändert -> +10%
+    closes[-1 - 4] = 105.0    # 4h zurück: -> ca. +4.76%
+
+    async def fake_closes(_pair, interval_min=60):
+        return closes
+
+    monkeypatch.setattr(dca_strategy, "_fetch_ohlc_closes", fake_closes)
+
+    val_24 = asyncio.run(rolling_change_pct("SOLEUR", lookback_bars=24, interval_min=60))
+    val_4 = asyncio.run(rolling_change_pct("SOLEUR", lookback_bars=4, interval_min=60))
+
+    assert val_24 == pytest.approx(10.0)
+    assert val_4 == pytest.approx((110.0 - 105.0) / 105.0 * 100)
+    assert val_24 != pytest.approx(val_4)
+    # Beide Cache-Einträge bleiben unabhängig nebeneinander bestehen.
+    assert len(dca_strategy._rolling_change_cache) == 2
 
 
 def _bind_bot_to_tmp_storage(bot, tmp_path):

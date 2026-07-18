@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade";
 
 type BotMeta = {
   key: BotKey;
@@ -40,6 +40,20 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Contrarian",
     prefix: "REV_",
     tagline: "Kauft stark gefallene Coins in der Hoffnung auf Erholung.",
+  },
+  {
+    key: "arb",
+    name: "Triangular-Arb",
+    nickname: "Der Pedant",
+    prefix: "ARB_",
+    tagline: "Sucht risikofreie Rundungsgewinne im EUR-BTC-ETH-Dreieck.",
+  },
+  {
+    key: "daytrade",
+    name: "Daytrade",
+    nickname: "Der Zappler",
+    prefix: "DAY_",
+    tagline: "Handelt kurzfristige Kursausschläge, nie länger als ein paar Stunden.",
   },
 ];
 
@@ -74,7 +88,14 @@ export type TradeRow = {
   pnlEur: number | null;
 };
 
-export type EquityPoint = { t: number; dca: number | null; momentum: number | null; meanrev: number | null };
+export type EquityPoint = {
+  t: number;
+  dca: number | null;
+  momentum: number | null;
+  meanrev: number | null;
+  arb: number | null;
+  daytrade: number | null;
+};
 
 type RawTrade = {
   id: number;
@@ -198,9 +219,11 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
   const byTime = new Map<number, EquityPoint>();
   for (const r of snapshots) {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
-    const point = byTime.get(bucket) ?? { t: bucket, dca: null, momentum: null, meanrev: null };
-    if (r.bot === "dca" || r.bot === "momentum" || r.bot === "meanrev") {
-      point[r.bot] = round2(num(r.equity_eur));
+    const point =
+      byTime.get(bucket) ??
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null };
+    if (BOTS.some((b) => b.key === r.bot)) {
+      point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
     byTime.set(bucket, point);
   }
@@ -263,6 +286,32 @@ export function getSettings(): SettingsView {
         { label: "Verlust-Bremse", value: "−5 %" },
         { label: "Positionsgröße", value: "15 €" },
         { label: "Max. offene Positionen", value: "3" },
+      ],
+    },
+    {
+      key: "arb",
+      name: "Triangular-Arb",
+      nickname: "Der Pedant",
+      params: [
+        { label: "Prüf-Intervall", value: "alle 45 Sek." },
+        { label: "Dreieck", value: "EUR → BTC → ETH → EUR", hint: "Beide Richtungen werden geprüft." },
+        { label: "Ticket-Größe", value: "25 €" },
+        { label: "Mindestgewinn", value: "0,05 €", hint: "Nach allen drei Gebühren-Legs." },
+        { label: "Max. Trades/Std.", value: "6", hint: "Sicherheits-Deckel gegen Fehlkonfiguration." },
+      ],
+    },
+    {
+      key: "daytrade",
+      name: "Daytrade",
+      nickname: "Der Zappler",
+      params: [
+        { label: "Prüf-Intervall", value: "alle 5 Min." },
+        { label: "Einstieg bei Anstieg", value: "+3 % bis +25 % (4 Std.)", hint: "Kurzfristiges Momentum statt 24h-Trend." },
+        { label: "Nachlaufende Stop-Bremse", value: "1,5 %" },
+        { label: "Harte Verlust-Bremse", value: "3 %" },
+        { label: "Positionsgröße", value: "10 €" },
+        { label: "Max. offene Positionen", value: "4" },
+        { label: "Max. Haltedauer", value: "6 Std." },
       ],
     },
   ];

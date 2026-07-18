@@ -21,6 +21,8 @@ BOTS = {
     "dca": {"label": "Der Brave", "prefix": "DCA_", "state": DATA_DIR / "dca_state.json"},
     "momentum": {"label": "Der Zocker", "prefix": "MOM_", "state": DATA_DIR / "momentum_state.json"},
     "meanrev": {"label": "Der Contrarian", "prefix": "REV_", "state": DATA_DIR / "meanrev_state.json"},
+    "arb": {"label": "Der Pedant", "prefix": "ARB_", "state": DATA_DIR / "arb_state.json"},
+    "daytrade": {"label": "Der Zappler", "prefix": "DAY_", "state": DATA_DIR / "daytrade_state.json"},
 }
 
 
@@ -157,6 +159,15 @@ def spark(vals: list[float]) -> str:
     return "".join(chars[min(7, max(0, round((v - lo) / (hi - lo) * 7)))] for v in vals)
 
 
+MEDALS = ["🥇", "🥈", "🥉"]
+
+
+def rank_marker(idx: int) -> str:
+    """Platzierungs-Symbol fürs Ranking. Fällt auf "4.", "5.", ... zurück,
+    sobald mehr Bots als Medaillen im Rennen sind."""
+    return MEDALS[idx] if idx < len(MEDALS) else f"{idx + 1}."
+
+
 async def build_report() -> str:
     await init_db()
     meta = ensure_meta()
@@ -165,16 +176,15 @@ async def build_report() -> str:
     for bot, cfg in BOTS.items():
         snaps[bot] = await equity_for(cfg["prefix"], cfg["state"], bot)
     ranking = sorted(snaps.items(), key=lambda kv: kv[1]["equity_eur"], reverse=True)
-    medals = ["🥇", "🥈", "🥉"]
     lines = [f"🏁 Strategie-Battle — Tag {day}/{int(meta.get('duration_days', DURATION_DAYS))}", ""]
     for idx, (bot, s) in enumerate(ranking):
         vals = [r[1] for r in rows_for_bot(bot)]
         pct = (s["equity_eur"] - 100.0)
-        lines.append(f"{medals[idx]} {BOTS[bot]['label']:<16} {s['equity_eur']:>7.2f} € ({pct:+.1f} %) {spark(vals)}")
+        lines.append(f"{rank_marker(idx)} {BOTS[bot]['label']:<16} {s['equity_eur']:>7.2f} € ({pct:+.1f} %) {spark(vals)}")
     lines.append("")
     lines.append("```")
     lines.append("           Equity   offen  real.PnL  Trades  MaxDD  UW(h)  Serie")
-    for bot in ["dca", "momentum", "meanrev"]:
+    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade"]:
         cfg = BOTS[bot]
         s = snaps[bot]
         rows = rows_for_bot(bot)

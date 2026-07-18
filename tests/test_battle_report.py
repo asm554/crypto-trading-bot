@@ -1,8 +1,20 @@
 import polybot.battle_report as battle_report
-from polybot.battle_report import max_drawdown, time_under_water_hours
+from polybot.battle_report import max_drawdown, rank_marker, time_under_water_hours
 
 
 H = 3600.0
+
+
+def test_rank_marker_uses_medals_for_top_three():
+    assert rank_marker(0) == "🥇"
+    assert rank_marker(1) == "🥈"
+    assert rank_marker(2) == "🥉"
+
+
+def test_rank_marker_falls_back_to_numbers_beyond_medals():
+    # Regression: bei 5 Bots (statt 3) darf das nicht mit IndexError crashen.
+    assert rank_marker(3) == "4."
+    assert rank_marker(4) == "5."
 
 
 def test_max_drawdown_measures_worst_fall_from_peak():
