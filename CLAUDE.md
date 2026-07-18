@@ -53,6 +53,9 @@ python -m pytest -q
 - Runtime DB: `polybot/data/paper_trades.db` (ignored)
 - Runtime states: `polybot/data/*_state.json` (ignored)
 - systemd templates: `systemd/*.example`
+- Aktueller Server-Deploy-Pfad: `/root/crypto-trading-bot` (nicht `/root/polyarbi` —
+  das war ein alter, ungenutzter Stand und wurde entfernt). Siehe die
+  `WorkingDirectory=`-Zeilen in `systemd/*.example`.
 
 ## Collaboration
 
