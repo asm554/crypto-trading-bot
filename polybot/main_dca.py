@@ -6,7 +6,7 @@ Wählt automatisch die profitabelsten EUR-Paare aus und kauft
 in festen Intervallen.
 
 Start:
-    cd /root/polyarbi
+    cd /root/crypto-trading-bot
     python -m polybot.main_dca
 
     # Mit eigenen Parametern (Umgebungsvariablen):
