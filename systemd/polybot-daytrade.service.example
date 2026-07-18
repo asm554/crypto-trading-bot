@@ -1,0 +1,29 @@
+[Unit]
+Description=Polybot Daytrade (Der Zappler) — Paper Trading
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/polyarbi
+ExecStart=/root/polyarbi/bot-env/bin/python3 -m polybot.main_daytrade
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+Environment=DAY_BUDGET=100
+Environment=DAY_INTERVAL_SEC=300
+Environment=DAY_LOOKBACK_H=4
+Environment=DAY_ENTRY_CHANGE_PCT=3.0
+Environment=DAY_ENTRY_MAX_CHANGE_PCT=25.0
+Environment=DAY_MIN_VOLUME_EUR=500000
+Environment=DAY_POSITION_EUR=10
+Environment=DAY_MAX_OPEN_POSITIONS=4
+Environment=DAY_TRAILING_STOP_PCT=1.5
+Environment=DAY_HARD_STOP_PCT=3.0
+Environment=DAY_MAX_HOLD_H=6
+Environment=DAY_COOLDOWN_H=2
+Environment=DAY_PAPER_MODE=true
+
+[Install]
+WantedBy=multi-user.target

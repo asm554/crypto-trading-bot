@@ -1,0 +1,22 @@
+[Unit]
+Description=Polybot Triangular-Arb (Der Pedant) — Paper Trading
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/polyarbi
+ExecStart=/root/polyarbi/bot-env/bin/python3 -m polybot.main_arb
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+Environment=ARB_BUDGET=100
+Environment=ARB_INTERVAL_SEC=45
+Environment=ARB_TICKET_EUR=25
+Environment=ARB_MIN_NET_PROFIT_EUR=0.05
+Environment=ARB_MAX_TRADES_PER_HOUR=6
+Environment=ARB_PAPER_MODE=true
+
+[Install]
+WantedBy=multi-user.target
