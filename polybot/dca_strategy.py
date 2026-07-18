@@ -61,6 +61,31 @@ async def fetch_ticker_data(pairs: list[str]) -> dict:
     return result
 
 
+# Kraken liefert im Ticker 'a' (Ask) und 'b' (Bid) mit. Käufe füllen sich zum Ask,
+# Verkäufe zum Bid – das ist der reale Spread statt einer erfundenen Slippage-
+# Konstante. Bei den Positionsgrößen dieser Bots (~8-12€) füllt sich eine Order
+# komplett am Top of Book, deshalb IST Ask/Bid der Fill und keine Näherung.
+# Wichtig: Signale (change_pct, Trailing-Peak, Exit-Trigger) rechnen weiter mit
+# 'c' (Last) – nur die Fills nehmen Ask/Bid. Sonst würde der Spread die
+# Strategie-Entscheidungen verschieben statt nur ihre Ausführung.
+def extract_quote(data: dict, last_price: float) -> tuple[float, float]:
+    """Bid/Ask aus einem Kraken-Ticker-Eintrag; (bid, ask).
+
+    Fällt auf ``last_price`` zurück, wenn Kraken keine brauchbare Quote liefert
+    (fehlend, <= 0 oder verdreht). Der Fill entspricht dann dem alten Verhalten
+    ohne Spread – lieber ein zu optimistischer Fill als ein toter Bot.
+    """
+    try:
+        ask = float(data["a"][0])
+        bid = float(data["b"][0])
+    except (KeyError, ValueError, IndexError, TypeError):
+        return last_price, last_price
+    if bid <= 0 or ask <= 0 or ask < bid:
+        logger.debug("Unbrauchbare Quote (bid=%s ask=%s) – Fallback auf Last", bid, ask)
+        return last_price, last_price
+    return bid, ask
+
+
 # Kraken-Ticker 'o' ist der Tages-Open (00:00 UTC) und springt um Mitternacht
 # auf ~0 zurück – daraus lässt sich KEINE echte 24h-Bewegung ableiten. Für
 # Einstiegsentscheidungen brauchen alle Bots die tatsächliche 24h-Änderung; die
@@ -163,9 +188,12 @@ async def rank_pairs_by_opportunity(candidates: list[str], top_n: int = 5) -> li
             if change_pct > 15:
                 score *= 0.4
 
+            bid, ask = extract_quote(data, last_price)
             ranked.append({
                 "pair": pair,
                 "last_price": last_price,
+                "bid": bid,
+                "ask": ask,
                 "change_pct": round(change_pct, 2),
                 "volatility_pct": round(volatility, 2),
                 "volume_eur": round(volume_eur, 0),
@@ -497,10 +525,13 @@ class DCABot:
             change_pct = (last_price - open_price) / open_price * 100
             volatility = (high_price - low_price) / open_price * 100 if open_price > 0 else 0.0
             volume_eur = volume_coin * vwap
+            bid, ask = extract_quote(data, last_price)
             out = dict(fallback or {})
             out.update({
                 "pair": pair,
                 "last_price": last_price,
+                "bid": bid,
+                "ask": ask,
                 "change_pct": round(change_pct, 2),
                 "volatility_pct": round(volatility, 2),
                 "volume_eur": round(volume_eur, 0),
@@ -557,16 +588,18 @@ class DCABot:
         return pnl_pct <= self.recovery_trigger_pct and change_pct >= self.recovery_reversal_pct
 
     def _record_dca_buy(self, trades: list[dict], coin_info: dict, pair: str, price: float, amount_eur: float, reason: str) -> None:
-        """Bucht einen Paper-DCA-Kauf in Runtime-State; DB-Logging macht run()."""
-        coins_bought = amount_eur / price
-        if self.paper_mode:
-            logger.info(
-                f"📝 PAPER DCA: KAUF {pair} | {amount_eur:.2f}€ → "
-                f"{coins_bought:.6f} Coins @ {price:.4f}€ [{reason}]"
-            )
-        else:
-            logger.warning(f"💰 LIVE DCA: KAUF {pair} | {amount_eur:.2f}€ [{reason}]")
-            # Hier echte Kraken-Order einfügen wenn Live-Modus aktiv.
+        """Bucht einen Paper-DCA-Kauf in Runtime-State; DB-Logging macht run().
+
+        ``price`` ist der Last-Preis aus der Entscheidungslogik – gefüllt wird zum
+        Ask. Der Fill-Preis wandert auch in die DB, damit ``_rebuild_state_from_db``
+        über ``size * price`` wieder exakt auf ``amount_eur`` kommt.
+        """
+        fill_price = float(coin_info.get("ask") or price)
+        coins_bought = amount_eur / fill_price
+        logger.info(
+            f"📝 PAPER DCA: KAUF {pair} | {amount_eur:.2f}€ → "
+            f"{coins_bought:.6f} Coins @ {fill_price:.4f}€ (Last {price:.4f}€) [{reason}]"
+        )
 
         self.capital_remaining = max(0.0, self.capital_remaining - amount_eur)
         if pair not in self.portfolio:
@@ -577,7 +610,7 @@ class DCABot:
         self.trade_count += 1
         trades.append({
             "pair": pair,
-            "price": price,
+            "price": fill_price,
             "amount_eur": amount_eur,
             "coins_bought": coins_bought,
             "change_pct": coin_info.get("change_pct", 0),
@@ -827,9 +860,13 @@ class DCABot:
     async def update_paper_pnl(self) -> None:
         """
         Schreibt für jeden offenen DCA-Trade den realistischen PnL in die DB.
-        Formel (roundtrip): pnl = (current_price - entry_price) * shares
+        Formel (roundtrip): pnl = (bid - entry_price) * shares
                                   - entry_cost * TAKER_FEE   (Kaufgebühr)
                                   - current_value * TAKER_FEE (simulierter Verkauf)
+
+        Der simulierte Verkauf rechnet mit dem Bid, weil das der Erlös wäre. Sonst
+        wäre der unrealisierte PnL systematisch optimistischer als der Betrag, den
+        ``manage_dca_exits`` beim echten Schließen realisiert.
         """
         from polybot import config
         import aiosqlite
@@ -867,11 +904,12 @@ class DCABot:
                     continue
 
                 current_price = float(data["c"][0])
+                bid, _ask     = extract_quote(data, current_price)
                 entry_price   = float(row["price"])
                 shares        = float(row["size"])
                 entry_cost    = entry_price * shares
 
-                current_value = current_price * shares
+                current_value = bid * shares
                 gross_pnl     = current_value - entry_cost
                 buy_fee       = entry_cost * TAKER_FEE
                 sell_fee      = current_value * TAKER_FEE
@@ -916,10 +954,12 @@ class DCABot:
                 continue
 
             current_price = float(data["c"][0])
+            # Trigger entscheidet auf Last, verkauft wird zum Bid.
+            exit_price, _ask = extract_quote(data, current_price)
             entry_price = float(row["entry_price"])
             shares = float(row["size"])
             entry_cost = entry_price * shares
-            current_value = current_price * shares
+            current_value = exit_price * shares
             gross_pnl = current_value - entry_cost
             buy_fee = entry_cost * taker_fee
             sell_fee = current_value * taker_fee
@@ -950,7 +990,7 @@ class DCABot:
                 logger.info("💡 DCA Exit verschoben %s: %s netto %+.4f€ < Mindestgewinn %.4f€" % (pair, reason, real_pnl, self.min_net_profit_eur))
                 continue
 
-            await resolve_trade(int(row["id"]), current_price, round(real_pnl, 6))
+            await resolve_trade(int(row["id"]), exit_price, round(real_pnl, 6))
 
             pos = self.portfolio.get(pair)
             if pos:

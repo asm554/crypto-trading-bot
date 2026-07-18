@@ -7,8 +7,14 @@ import polybot.paper_db as paper_db
 from polybot.momentum_strategy import MomentumBot
 
 
-def _valid_ticker(open_price="100", last="110", vol24="2000", vwap24="108"):
-    """Kraken-style ticker payload (o, c, h, l, v, p)."""
+def _valid_ticker(open_price="100", last="110", vol24="2000", vwap24="108", bid=None, ask=None):
+    """Kraken-style ticker payload (o, c, h, l, v, p, b, a).
+
+    Bid/Ask leiten sich per Default aus ``last`` ab (±0.1%), damit die Quote zu
+    jedem überschriebenen ``last`` konsistent bleibt: ein fest verdrahtetes Bid
+    läge sonst über dem Last und ergäbe Fills, die es real nicht gibt.
+    """
+    last_f = float(last)
     return {
         "o": open_price,
         "c": [last, "1.5"],
@@ -17,8 +23,8 @@ def _valid_ticker(open_price="100", last="110", vol24="2000", vwap24="108"):
         "v": ["1000", vol24],
         "p": ["105", vwap24],
         "t": [10, 20],
-        "b": ["109", "1", "1"],
-        "a": ["111", "1", "1"],
+        "b": [bid if bid is not None else f"{last_f * 0.999:.8f}", "1", "1"],
+        "a": [ask if ask is not None else f"{last_f * 1.001:.8f}", "1", "1"],
     }
 
 
@@ -93,6 +99,42 @@ def test_scan_entries_opens_position_for_valid_momentum_candidate(monkeypatch, t
     asyncio.run(scenario())
 
 
+def test_scan_entries_fills_at_ask_not_last(monkeypatch, tmp_path):
+    """Gekauft wird zum Ask; der Einstiegsfilter entscheidet weiter auf Last."""
+    db_path = tmp_path / "paper_trades.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def fake_fetch_ticker_data(_pairs):
+        # Breiter Spread, damit Ask (112) klar von Last (110) unterscheidbar ist.
+        return {"SOLEUR": _valid_ticker(open_price="100", last="110", vol24="10000", vwap24="110", bid="108", ask="112")}
+
+    async def fake_rolling(_pair, *args, **kwargs):
+        return 10.0
+
+    monkeypatch.setattr(momentum_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
+    monkeypatch.setattr(momentum_strategy, "rolling_24h_change_pct", fake_rolling)
+
+    async def scenario():
+        await paper_db.init_db()
+        bot = _bind_bot_to_tmp_storage(
+            MomentumBot(initial_capital_eur=100.0, position_eur=12.0, paper_mode=True),
+            tmp_path,
+        )
+        bot.last_entry_scan = 0.0
+
+        opened = await bot.scan_entries()
+
+        assert len(opened) == 1
+        assert opened[0]["price"] == pytest.approx(112.0)
+        # 12€ zum Ask ergeben weniger Coins als zum Last -> Spread kostet echt.
+        assert bot.portfolio["SOLEUR"]["shares"] == pytest.approx(12.0 / 112.0)
+        assert bot.portfolio["SOLEUR"]["entry_price"] == pytest.approx(112.0)
+        # Trailing-Peak ist ein Signal und startet auf Last, nicht auf dem Ask.
+        assert bot.portfolio["SOLEUR"]["peak_price"] == pytest.approx(110.0)
+
+    asyncio.run(scenario())
+
+
 def test_manage_positions_exits_via_trailing_stop_and_returns_cash(monkeypatch, tmp_path):
     db_path = tmp_path / "paper_trades.db"
     monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
@@ -136,8 +178,10 @@ def test_manage_positions_exits_via_trailing_stop_and_returns_cash(monkeypatch, 
         assert resolved[0]["reason"] == "trailing_stop"
         assert resolved[0]["pnl"] < 0
         assert bot.portfolio == {}
-        # Cash returned: 88 + entry_cost(12) + pnl(-1.2912) = 98.7088
-        assert bot.capital_remaining == pytest.approx(98.7088, rel=1e-4)
+        # Trigger auf Last (90), Fill zum Bid (89.91):
+        # value = 0.12 * 89.91 = 10.7892; pnl = 10.7892 - 12 - 12*0.004 - 10.7892*0.004
+        # Cash returned: 88 + entry_cost(12) + pnl(-1.30196) = 98.69804
+        assert bot.capital_remaining == pytest.approx(98.69804, rel=1e-4)
 
         rows = await paper_db.get_open_trades_by_prefix("MOM_")
         assert rows == []

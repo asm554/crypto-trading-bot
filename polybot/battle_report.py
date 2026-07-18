@@ -10,7 +10,7 @@ from pathlib import Path
 from polybot import config
 from polybot import paper_db as paper_db_module
 from polybot.alerts import send_telegram
-from polybot.dca_strategy import PAIR_MAP, fetch_ticker_data
+from polybot.dca_strategy import PAIR_MAP, extract_quote, fetch_ticker_data
 from polybot.paper_db import DB_PATH, get_open_trades_by_prefix, init_db, log_equity_snapshot
 
 DATA_DIR = Path(DB_PATH).resolve().parent
@@ -64,7 +64,10 @@ async def equity_for(prefix: str, state_path: Path, bot: str) -> dict:
             unrealized += 0.0
             continue
         last = float(data["c"][0])
-        current_value = shares * last
+        # Mark-to-Market simuliert den Verkauf, also zum Bid bewerten – sonst
+        # weicht der Battle-Report von der Equity der Bots ab.
+        bid, _ask = extract_quote(data, last)
+        current_value = shares * bid
         sell_fee = current_value * FEE
         mtm += current_value - sell_fee
         unrealized += current_value - entry_cost - entry_cost * FEE - sell_fee
@@ -100,6 +103,49 @@ def max_drawdown(vals: list[float]) -> float:
     return worst
 
 
+def time_under_water_hours(rows: list[tuple]) -> float:
+    """Längste Strecke unterhalb eines früheren Equity-Hochs, in Stunden.
+
+    Beantwortet die Frage, die MaxDD offenlässt: nicht wie tief es ging, sondern
+    wie lange man es aushalten musste. Gemessen wird ab dem Hoch (nicht ab dem
+    ersten roten Snapshot – unter Wasser ist man ab dem Moment, wo es vom Peak
+    runtergeht) bis zum letzten Snapshot, der noch unter diesem Hoch liegt.
+    Läuft die Serie am Ende noch unter Wasser, zählt sie bis zum letzten Snapshot.
+    """
+    peak = None
+    peak_ts = None
+    worst = 0.0
+    for ts, v in rows:
+        ts, v = float(ts), float(v)
+        if peak is None or v >= peak:
+            peak = v
+            peak_ts = ts
+            continue
+        worst = max(worst, ts - peak_ts)
+    return worst / 3600.0
+
+
+def longest_losing_streak(prefix: str) -> int:
+    """Längste Serie aufeinanderfolgender Verlust-Trades (nach Gebühren)."""
+    con = sqlite3.connect(DB_PATH, timeout=30.0)
+    try:
+        rows = con.execute(
+            "SELECT real_pnl FROM paper_trades WHERE market_question LIKE ? "
+            "AND resolved_at IS NOT NULL ORDER BY resolved_at ASC",
+            (f"{prefix}%",),
+        ).fetchall()
+    finally:
+        con.close()
+    worst = current = 0
+    for (pnl,) in rows:
+        if float(pnl or 0.0) < 0:
+            current += 1
+            worst = max(worst, current)
+        else:
+            current = 0
+    return worst
+
+
 def spark(vals: list[float]) -> str:
     vals = vals[-5:]
     chars = "▁▂▃▄▅▆▇█"
@@ -127,15 +173,23 @@ async def build_report() -> str:
         lines.append(f"{medals[idx]} {BOTS[bot]['label']:<16} {s['equity_eur']:>7.2f} € ({pct:+.1f} %) {spark(vals)}")
     lines.append("")
     lines.append("```")
-    lines.append("           Equity   offen  real.PnL  Trades  MaxDD")
+    lines.append("           Equity   offen  real.PnL  Trades  MaxDD  UW(h)  Serie")
     for bot in ["dca", "momentum", "meanrev"]:
         cfg = BOTS[bot]
         s = snaps[bot]
-        vals = [r[1] for r in rows_for_bot(bot)]
-        lines.append(f"{cfg['label'][:10]:<10} {s['equity_eur']:>7.2f}€ {s['open_positions']:>5} {s['realized_pnl_eur']:>+8.2f}€ {trades_count(cfg['prefix']):>6} {max_drawdown(vals):>+6.1f}%")
+        rows = rows_for_bot(bot)
+        vals = [r[1] for r in rows]
+        lines.append(
+            f"{cfg['label'][:10]:<10} {s['equity_eur']:>7.2f}€ {s['open_positions']:>5} "
+            f"{s['realized_pnl_eur']:>+8.2f}€ {trades_count(cfg['prefix']):>6} "
+            f"{max_drawdown(vals):>+6.1f}% {time_under_water_hours(rows):>6.1f} "
+            f"{longest_losing_streak(cfg['prefix']):>6}"
+        )
     lines.append("```")
     lines.append("")
     lines.append("KPI: Ranking nach Netto-Equity (Cash + Mark-to-Market nach Gebühren), nicht nach realisiertem PnL.")
+    lines.append("Fills: Kauf zum Ask, Verkauf zum Bid (echter Kraken-Spread).")
+    lines.append("MaxDD = tiefster Abfall vom Hoch | UW(h) = längste Zeit unter Wasser | Serie = längste Verlustserie.")
     return "\n".join(lines)
 
 

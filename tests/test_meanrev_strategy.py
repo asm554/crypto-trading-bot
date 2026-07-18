@@ -7,14 +7,23 @@ import polybot.paper_db as paper_db
 from polybot.meanrev_strategy import MeanRevBot, rsi_wilder
 
 
-def _ticker(open_price="100", last="90", vol24="2000", vwap24="96"):
-    """Kraken-style ticker payload used by MeanRevBot._ticker_snapshot."""
-    return {
+def _ticker(open_price="100", last="90", vol24="2000", vwap24="96", bid=None, ask=None):
+    """Kraken-style ticker payload used by MeanRevBot._ticker_snapshot.
+
+    Ohne bid/ask fehlt die Quote absichtlich – dann fällt der Fill auf den Last
+    zurück (Fallback-Pfad). Tests, die den Spread prüfen, setzen bid/ask explizit.
+    """
+    payload = {
         "o": open_price,
         "c": [last, "1.0"],
         "v": ["1000", vol24],
         "p": ["95", vwap24],
     }
+    if bid is not None:
+        payload["b"] = [bid, "1", "1"]
+    if ask is not None:
+        payload["a"] = [ask, "1", "1"]
+    return payload
 
 
 def _bind_bot_to_tmp_storage(bot, tmp_path):
@@ -142,6 +151,51 @@ def test_scan_entries_opens_position_on_oversold_stabilized_candidate(monkeypatc
         rows = await paper_db.get_open_trades_by_prefix("REV_")
         assert len(rows) == 1
         assert rows[0]["market_question"] == "REV_SOLEUR"
+
+    asyncio.run(scenario())
+
+
+def test_scan_entries_fills_at_ask_not_last(monkeypatch, tmp_path):
+    """Der Stabilisierungs-Filter entscheidet auf Last, gekauft wird zum Ask."""
+    db_path = tmp_path / "paper_trades.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def fake_fetch_ticker_data(_pairs):
+        # Last 95 (klärt den low6-Filter), Ask 97 -> Fill teurer als der Trigger.
+        return {"SOLEUR": _ticker(open_price="110", last="95", vol24="2000", vwap24="96", bid="93", ask="97")}
+
+    async def fake_fetch_ohlc(pair, interval_min=60):
+        rows = []
+        for i in range(20):
+            close = 120.0 - i
+            rows.append((float(i), close + 1.0, close + 2.0, close - 10.0, close, close, 1000.0))
+        return rows
+
+    async def fake_sleep(_seconds):
+        return None
+
+    async def fake_rolling(_pair, *args, **kwargs):
+        return -13.6
+
+    monkeypatch.setattr(meanrev_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
+    monkeypatch.setattr(meanrev_strategy, "fetch_ohlc", fake_fetch_ohlc)
+    monkeypatch.setattr(meanrev_strategy, "rolling_24h_change_pct", fake_rolling)
+    monkeypatch.setattr(meanrev_strategy.asyncio, "sleep", fake_sleep)
+
+    async def scenario():
+        await paper_db.init_db()
+        bot = _bind_bot_to_tmp_storage(
+            MeanRevBot(initial_capital_eur=100.0, position_eur=15.0, paper_mode=True),
+            tmp_path,
+        )
+        bot.last_entry_scan = 0.0
+
+        opened = await bot.scan_entries()
+
+        assert len(opened) == 1
+        assert opened[0]["price"] == pytest.approx(97.0)
+        assert bot.portfolio["SOLEUR"]["entry_price"] == pytest.approx(97.0)
+        assert bot.portfolio["SOLEUR"]["shares"] == pytest.approx(15.0 / 97.0)
 
     asyncio.run(scenario())
 

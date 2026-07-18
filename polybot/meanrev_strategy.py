@@ -11,7 +11,7 @@ import aiohttp
 
 from polybot import config
 from polybot import paper_db as paper_db_module
-from polybot.dca_strategy import CANDIDATE_PAIRS, KRAKEN_PUBLIC, PAIR_MAP, fetch_ticker_data, rolling_24h_change_pct
+from polybot.dca_strategy import CANDIDATE_PAIRS, KRAKEN_PUBLIC, PAIR_MAP, extract_quote, fetch_ticker_data, rolling_24h_change_pct
 from polybot.paper_db import get_open_trades_by_prefix, log_equity_snapshot, log_paper_trade, resolve_trade
 
 logger = logging.getLogger(__name__)
@@ -177,7 +177,8 @@ class MeanRevBot:
             volume_eur = float(data["v"][1]) * float(data["p"][1])
             if open_price <= 0 or last <= 0:
                 return None
-            return {"pair": pair, "last_price": last, "change_pct": (last - open_price) / open_price * 100, "volume_eur": volume_eur}
+            bid, ask = extract_quote(data, last)
+            return {"pair": pair, "last_price": last, "bid": bid, "ask": ask, "change_pct": (last - open_price) / open_price * 100, "volume_eur": volume_eur}
         except Exception:
             return None
 
@@ -209,16 +210,18 @@ class MeanRevBot:
             trade_id = int(pos.get("trade_id") or 0)
             row = open_rows.get(trade_id)
             shares = float(pos.get("shares") or (row or {}).get("size") or 0.0)
+            # Trigger oben entscheidet auf Last, verkauft wird zum Bid.
+            exit_price = float(snap.get("bid") or last)
             entry_cost = shares * entry
-            current_value = shares * last
+            current_value = shares * exit_price
             fee = config.CRYPTO_TAKER_FEE_RATE
             real_pnl = current_value - entry_cost - entry_cost * fee - current_value * fee
-            await resolve_trade(trade_id, last, round(real_pnl, 6))
+            await resolve_trade(trade_id, exit_price, round(real_pnl, 6))
             self.capital_remaining += entry_cost + real_pnl
             self.cooldowns[pair] = now + self.cooldown_sec
             self.portfolio.pop(pair, None)
             out.append({"pair": pair, "reason": reason, "pnl": real_pnl})
-            logger.info("✅ REV Exit %s: %s @ %.6f€ | PnL %+0.4f€", pair, reason, last, real_pnl)
+            logger.info("✅ REV Exit %s: %s @ %.6f€ (Last %.6f€) | PnL %+0.4f€", pair, reason, exit_price, last, real_pnl)
         if out:
             self._save_state()
         return out
@@ -275,13 +278,15 @@ class MeanRevBot:
             if amount < 1.0:
                 logger.info("⏭️ REV: Cash %.2f€ reicht nicht", self.capital_remaining)
                 break
-            shares = amount / last
-            trade_id = await log_paper_trade(f"{PREFIX}{pair}", "buy", shares, last, abs(snap["change_pct"]) / 100, "paper")
+            # Stabilisierungs-/RSI-Filter oben entscheiden auf Last, gekauft wird zum Ask.
+            fill_price = float(snap.get("ask") or last)
+            shares = amount / fill_price
+            trade_id = await log_paper_trade(f"{PREFIX}{pair}", "buy", shares, fill_price, abs(snap["change_pct"]) / 100, "paper")
             self.capital_remaining -= amount
-            self.portfolio[pair] = {"shares": shares, "cost_basis": amount, "entry_price": last, "entry_ts": time.time(), "trade_id": trade_id}
+            self.portfolio[pair] = {"shares": shares, "cost_basis": amount, "entry_price": fill_price, "entry_ts": time.time(), "trade_id": trade_id}
             self.trade_count += 1
-            opened.append({"pair": pair, "amount": amount, "price": last, "rsi": rsi})
-            logger.info("📝 REV Entry %s: %.2f€ @ %.6f€ | drop %.2f%% RSI %.1f", pair, amount, last, snap["change_pct"], rsi)
+            opened.append({"pair": pair, "amount": amount, "price": fill_price, "rsi": rsi})
+            logger.info("📝 REV Entry %s: %.2f€ @ %.6f€ (Last %.6f€) | drop %.2f%% RSI %.1f", pair, amount, fill_price, last, snap["change_pct"], rsi)
         self._save_state()
         return opened
 
@@ -294,7 +299,8 @@ class MeanRevBot:
             snap = self._ticker_snapshot(pair, ticker)
             if not snap:
                 continue
-            current_value = float(pos["shares"]) * float(snap["last_price"])
+            # Mark-to-Market simuliert den Verkauf, also zum Bid bewerten.
+            current_value = float(pos["shares"]) * float(snap.get("bid") or snap["last_price"])
             sell_fee = current_value * fee
             entry_cost = float(pos["cost_basis"])
             mtm += current_value - sell_fee
