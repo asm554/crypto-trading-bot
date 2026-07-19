@@ -11,7 +11,7 @@ from polybot import config
 from polybot import paper_db as paper_db_module
 from polybot.alerts import send_telegram
 from polybot.dca_strategy import PAIR_MAP, extract_quote, fetch_ticker_data
-from polybot.memecoin_strategy import DEFAULT_SLIPPAGE_PCT, EURUSD_INTERNAL, EURUSD_PAIR, FALLBACK_EUR_USD_RATE, fetch_meme_pairs
+from polybot.memecoin_strategy import DEFAULT_SLIPPAGE_PCT, EURUSD_INTERNAL, EURUSD_PAIR, FALLBACK_EUR_USD_RATE, fetch_pairs_by_address
 from polybot.paper_db import DB_PATH, get_open_trades_by_prefix, init_db, log_equity_snapshot
 
 DATA_DIR = Path(DB_PATH).resolve().parent
@@ -84,27 +84,32 @@ async def equity_for(prefix: str, state_path: Path, bot: str) -> dict:
 async def equity_for_memecoin(prefix: str, state_path: Path, bot: str) -> dict:
     """Wie ``equity_for``, aber über DexScreener statt Kraken.
 
-    "Der Onchain" hält Solana-Symbole (z.B. "BONK"), keine Kraken-Paare —
-    ``equity_for`` würde ``fetch_ticker_data`` mit diesen Symbolen erfolglos
-    gegen Kraken aufrufen. Bewertung sonst identisch: Cash aus dem State,
-    offene Positionen zum aktuellen Preis abzüglich Verkaufs-Slippage (da es
-    on-chain kein Bid gibt, siehe memecoin_strategy.py).
+    "Der Onchain" schlüsselt intern nach Mint-Adresse, nicht nach Ticker
+    (zwei dynamisch entdeckte Tokens können denselben Namen tragen) —
+    ``market_question`` kodiert deshalb ``CHAIN_{symbol}@{address}``; die
+    Adresse nach dem ``@`` ist der Teil, der gegen DexScreener aufgelöst wird.
+    Bewertung sonst wie ``equity_for``: Cash aus dem State, offene Positionen
+    zum aktuellen Preis abzüglich Verkaufs-Slippage (da es on-chain kein Bid
+    gibt, siehe memecoin_strategy.py).
     """
     cash = load_cash(state_path)
     open_rows = await get_open_trades_by_prefix(prefix)
-    symbols = sorted({r["market_question"].replace(prefix, "") for r in open_rows})
-    pairs = await fetch_meme_pairs(symbols) if symbols else {}
+    addresses = sorted({
+        row["market_question"].replace(prefix, "").partition("@")[2]
+        for row in open_rows if "@" in row["market_question"]
+    })
+    pairs = await fetch_pairs_by_address(addresses) if addresses else {}
     ticker = await fetch_ticker_data([EURUSD_PAIR])
     eurusd = ticker.get(EURUSD_INTERNAL) or ticker.get(EURUSD_PAIR)
     rate = float(eurusd["c"][0]) if eurusd else FALLBACK_EUR_USD_RATE
     mtm = 0.0
     unrealized = 0.0
     for row in open_rows:
-        symbol = row["market_question"].replace(prefix, "")
+        _, _, address = row["market_question"].replace(prefix, "").partition("@")
         shares = float(row["size"])
         entry = float(row["entry_price"])
         entry_cost = shares * entry
-        pair = pairs.get(symbol)
+        pair = pairs.get(address)
         if not pair:
             mtm += entry_cost
             continue

@@ -24,6 +24,11 @@ MOMENTUM_LOOKBACK_MIN = float(os.getenv("CHAIN_MOMENTUM_LOOKBACK_MIN", "60"))
 ENTRY_CHANGE_PCT = float(os.getenv("CHAIN_ENTRY_CHANGE_PCT", "8.0"))
 ENTRY_MAX_CHANGE_PCT = float(os.getenv("CHAIN_ENTRY_MAX_CHANGE_PCT", "60.0"))
 MIN_LIQUIDITY_USD = float(os.getenv("CHAIN_MIN_LIQUIDITY_USD", "50000"))
+MIN_VOLUME_USD = float(os.getenv("CHAIN_MIN_VOLUME_USD", "250000"))
+MIN_BUY_SELL_RATIO = float(os.getenv("CHAIN_MIN_BUY_SELL_RATIO", "1.2"))
+DYNAMIC_ENABLED = os.getenv("CHAIN_DYNAMIC_ENABLED", "true").lower() == "true"
+MAX_DYNAMIC_TOKENS = int(os.getenv("CHAIN_MAX_DYNAMIC_TOKENS", "15"))
+MIN_PAIR_AGE_H = float(os.getenv("CHAIN_MIN_PAIR_AGE_H", "6"))
 POSITION_EUR = float(os.getenv("CHAIN_POSITION_EUR", "8"))
 MAX_OPEN_POSITIONS = int(os.getenv("CHAIN_MAX_OPEN_POSITIONS", "3"))
 TAKE_PROFIT_PCT = float(os.getenv("CHAIN_TAKE_PROFIT_PCT", "15"))
@@ -42,6 +47,11 @@ async def main():
         entry_change_pct=ENTRY_CHANGE_PCT,
         entry_max_change_pct=ENTRY_MAX_CHANGE_PCT,
         min_liquidity_usd=MIN_LIQUIDITY_USD,
+        min_volume_usd=MIN_VOLUME_USD,
+        min_buy_sell_ratio=MIN_BUY_SELL_RATIO,
+        dynamic_enabled=DYNAMIC_ENABLED,
+        max_dynamic_tokens=MAX_DYNAMIC_TOKENS,
+        min_pair_age_hours=MIN_PAIR_AGE_H,
         position_eur=POSITION_EUR,
         max_open_positions=MAX_OPEN_POSITIONS,
         take_profit_pct=TAKE_PROFIT_PCT,
