@@ -34,7 +34,7 @@ export default async function OverviewPage() {
         <div>
           <h1 className="text-xl font-semibold">Übersicht</h1>
           <p className="text-sm text-muted-foreground">
-            Drei Bots handeln mit Spielgeld gegeneinander. Wer macht am meisten daraus?
+            {bots.length} Bots handeln mit Spielgeld gegeneinander. Wer macht am meisten daraus?
           </p>
         </div>
         <AutoRefresh />

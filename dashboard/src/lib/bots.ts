@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin";
 
 type BotMeta = {
   key: BotKey;
@@ -55,6 +55,13 @@ export const BOTS: BotMeta[] = [
     prefix: "DAY_",
     tagline: "Handelt kurzfristige Kursausschläge, nie länger als ein paar Stunden.",
   },
+  {
+    key: "memecoin",
+    name: "Onchain-Memecoin",
+    nickname: "Der Onchain",
+    prefix: "CHAIN_",
+    tagline: "Springt früh auf stark steigende Solana-Memecoins auf und nimmt den Gewinn bei rund +15 % mit.",
+  },
 ];
 
 export type BotSummary = {
@@ -95,6 +102,7 @@ export type EquityPoint = {
   meanrev: number | null;
   arb: number | null;
   daytrade: number | null;
+  memecoin: number | null;
 };
 
 type RawTrade = {
@@ -188,11 +196,16 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
 
 function toTradeRow(r: RawTrade): TradeRow {
   const meta = BOTS.find((b) => r.market_question.startsWith(b.prefix));
+  // "Der Onchain" kodiert CHAIN_{symbol}@{address} (Adresse für die Preis-
+  // Auflösung, da zwei dynamisch entdeckte Solana-Tokens denselben Namen
+  // tragen können) — im Dashboard reicht das Symbol vor dem "@".
+  const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
+  const pair = meta?.key === "memecoin" ? rest.split("@")[0] : rest;
   return {
     id: r.id,
     botKey: meta?.key ?? "?",
     bot: meta?.nickname ?? "?",
-    pair: meta ? r.market_question.slice(meta.prefix.length) : r.market_question,
+    pair,
     side: r.side,
     sizeEur: round2(num(r.size) * num(r.price)),
     price: num(r.price),
@@ -221,7 +234,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -312,6 +325,26 @@ export function getSettings(): SettingsView {
         { label: "Positionsgröße", value: "10 €" },
         { label: "Max. offene Positionen", value: "4" },
         { label: "Max. Haltedauer", value: "6 Std." },
+      ],
+    },
+    {
+      key: "memecoin",
+      name: "Onchain-Memecoin",
+      nickname: "Der Onchain",
+      params: [
+        { label: "Prüf-Intervall", value: "alle 5 Min." },
+        { label: "Coin-Universum", value: "12 kuratierte + bis zu 15 dynamische", hint: "Kern: BONK, WIF, POPCAT, PNUT, GOAT, MEW, FARTCOIN, GIGA, MOODENG, FWOG, PENGU, SLERF. Dazu aktuell beworbene Solana-Token aus DexScreeners Boost-/Profile-Feeds, scharf gefiltert." },
+        { label: "Einstieg bei Momentum", value: "+8 % bis +60 % (letzte Stunde)", hint: "Springt früh auf einen frischen Anstieg auf; die Obergrenze vermeidet den Kauf in einen schon auslaufenden Pump." },
+        { label: "Mindest-Liquidität", value: "50.000 $", hint: "Filtert dünne/riskante Pools raus." },
+        { label: "Mindest-Volumen (24h)", value: "250.000 $", hint: "Filtert Anstiege raus, die kaum echtes Handelsvolumen hinter sich haben." },
+        { label: "Kaufdruck", value: "Käufe ≥ 1,2× Verkäufe (letzte Stunde)", hint: "Lehnt Anstiege ab, die schon ins Verkaufen kippen." },
+        { label: "Mindestalter (dynamisch)", value: "6 Std.", hint: "Nur für neu entdeckte Token, nicht für den kuratierten Kern – schützt vor frischen Rug-Bait-Launches." },
+        { label: "Gewinnmitnahme", value: "+15 %" },
+        { label: "Verlust-Bremse", value: "−10 %", hint: "Zwingend, da nur Take-Profit unbegrenzte Verluste zuließe." },
+        { label: "Positionsgröße", value: "8 €" },
+        { label: "Max. offene Positionen", value: "3" },
+        { label: "Max. Haltedauer", value: "24 Std." },
+        { label: "Swap-Slippage", value: "1,5 %", hint: "On-chain gibt es kein Bid/Ask – simuliert den AMM-Preisimpact." },
       ],
     },
   ];

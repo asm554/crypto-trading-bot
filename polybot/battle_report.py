@@ -11,6 +11,7 @@ from polybot import config
 from polybot import paper_db as paper_db_module
 from polybot.alerts import send_telegram
 from polybot.dca_strategy import PAIR_MAP, extract_quote, fetch_ticker_data
+from polybot.memecoin_strategy import DEFAULT_SLIPPAGE_PCT, EURUSD_INTERNAL, EURUSD_PAIR, FALLBACK_EUR_USD_RATE, fetch_pairs_by_address
 from polybot.paper_db import DB_PATH, get_open_trades_by_prefix, init_db, log_equity_snapshot
 
 DATA_DIR = Path(DB_PATH).resolve().parent
@@ -23,6 +24,7 @@ BOTS = {
     "meanrev": {"label": "Der Contrarian", "prefix": "REV_", "state": DATA_DIR / "meanrev_state.json"},
     "arb": {"label": "Der Pedant", "prefix": "ARB_", "state": DATA_DIR / "arb_state.json"},
     "daytrade": {"label": "Der Zappler", "prefix": "DAY_", "state": DATA_DIR / "daytrade_state.json"},
+    "memecoin": {"label": "Der Onchain", "prefix": "CHAIN_", "state": DATA_DIR / "memecoin_state.json"},
 }
 
 
@@ -73,6 +75,48 @@ async def equity_for(prefix: str, state_path: Path, bot: str) -> dict:
         sell_fee = current_value * FEE
         mtm += current_value - sell_fee
         unrealized += current_value - entry_cost - entry_cost * FEE - sell_fee
+    realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
+    snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
+    await log_equity_snapshot(bot, **snap)
+    return snap
+
+
+async def equity_for_memecoin(prefix: str, state_path: Path, bot: str) -> dict:
+    """Wie ``equity_for``, aber über DexScreener statt Kraken.
+
+    "Der Onchain" schlüsselt intern nach Mint-Adresse, nicht nach Ticker
+    (zwei dynamisch entdeckte Tokens können denselben Namen tragen) —
+    ``market_question`` kodiert deshalb ``CHAIN_{symbol}@{address}``; die
+    Adresse nach dem ``@`` ist der Teil, der gegen DexScreener aufgelöst wird.
+    Bewertung sonst wie ``equity_for``: Cash aus dem State, offene Positionen
+    zum aktuellen Preis abzüglich Verkaufs-Slippage (da es on-chain kein Bid
+    gibt, siehe memecoin_strategy.py).
+    """
+    cash = load_cash(state_path)
+    open_rows = await get_open_trades_by_prefix(prefix)
+    addresses = sorted({
+        row["market_question"].replace(prefix, "").partition("@")[2]
+        for row in open_rows if "@" in row["market_question"]
+    })
+    pairs = await fetch_pairs_by_address(addresses) if addresses else {}
+    ticker = await fetch_ticker_data([EURUSD_PAIR])
+    eurusd = ticker.get(EURUSD_INTERNAL) or ticker.get(EURUSD_PAIR)
+    rate = float(eurusd["c"][0]) if eurusd else FALLBACK_EUR_USD_RATE
+    mtm = 0.0
+    unrealized = 0.0
+    for row in open_rows:
+        _, _, address = row["market_question"].replace(prefix, "").partition("@")
+        shares = float(row["size"])
+        entry = float(row["entry_price"])
+        entry_cost = shares * entry
+        pair = pairs.get(address)
+        if not pair:
+            mtm += entry_cost
+            continue
+        price_usd = float(pair["priceUsd"])
+        current_value = shares * (price_usd / rate) * (1 - DEFAULT_SLIPPAGE_PCT / 100)
+        mtm += current_value
+        unrealized += current_value - entry_cost
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
     snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
     await log_equity_snapshot(bot, **snap)
@@ -174,7 +218,10 @@ async def build_report() -> str:
     day = max(1, min(int((time.time() - float(meta["start_ts"])) // 86400) + 1, int(meta.get("duration_days", DURATION_DAYS))))
     snaps = {}
     for bot, cfg in BOTS.items():
-        snaps[bot] = await equity_for(cfg["prefix"], cfg["state"], bot)
+        if bot == "memecoin":
+            snaps[bot] = await equity_for_memecoin(cfg["prefix"], cfg["state"], bot)
+        else:
+            snaps[bot] = await equity_for(cfg["prefix"], cfg["state"], bot)
     ranking = sorted(snaps.items(), key=lambda kv: kv[1]["equity_eur"], reverse=True)
     lines = [f"🏁 Strategie-Battle — Tag {day}/{int(meta.get('duration_days', DURATION_DAYS))}", ""]
     for idx, (bot, s) in enumerate(ranking):
@@ -184,7 +231,7 @@ async def build_report() -> str:
     lines.append("")
     lines.append("```")
     lines.append("           Equity   offen  real.PnL  Trades  MaxDD  UW(h)  Serie")
-    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade"]:
+    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin"]:
         cfg = BOTS[bot]
         s = snaps[bot]
         rows = rows_for_bot(bot)
