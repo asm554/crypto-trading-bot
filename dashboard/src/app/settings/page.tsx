@@ -14,7 +14,7 @@ export default function SettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Einstellungen</h1>
+        <h1 className="text-2xl font-bold">Einstellungen</h1>
         <p className="text-sm text-muted-foreground">
           Zum Ansehen. Geändert werden die Werte in der Bot-Konfiguration.
         </p>
@@ -49,10 +49,22 @@ export default function SettingsPage() {
       {/* Strategien */}
       <div className="grid gap-4 lg:grid-cols-3">
         {strategies.map((s) => (
-          <Card key={s.key}>
+          <Card key={s.key} className="relative overflow-hidden">
+            <div
+              aria-hidden
+              className="absolute inset-x-0 top-0 h-0.5"
+              style={{
+                background: `linear-gradient(to right, var(--bot-${s.key}), transparent 85%)`,
+              }}
+            />
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
-                <CardTitle className="text-base">{s.nickname}</CardTitle>
+                <span
+                  aria-hidden
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: `var(--bot-${s.key})` }}
+                />
+                <CardTitle className="font-heading text-base font-bold">{s.nickname}</CardTitle>
                 <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
                   {s.name}
                 </Badge>

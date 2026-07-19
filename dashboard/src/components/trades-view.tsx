@@ -98,8 +98,17 @@ export function TradesView({
           <TableBody>
             {filtered.map((t) => (
               <TableRow key={t.id}>
-                <TableCell className="text-muted-foreground">{clockTime(t.timestamp)}</TableCell>
-                <TableCell>{t.bot}</TableCell>
+                <TableCell className="font-mono text-muted-foreground">{clockTime(t.timestamp)}</TableCell>
+                <TableCell>
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      aria-hidden
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ background: `var(--bot-${t.botKey})` }}
+                    />
+                    {t.bot}
+                  </span>
+                </TableCell>
                 <TableCell className="font-mono">{t.pair}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {SIDE_LABEL[t.side] ?? t.side}

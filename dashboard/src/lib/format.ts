@@ -24,7 +24,7 @@ export function pnlTone(n: number): "up" | "down" | "flat" {
 
 export function pnlToneClass(n: number): string {
   const t = pnlTone(n);
-  return t === "up" ? "text-emerald-500" : t === "down" ? "text-red-500" : "text-muted-foreground";
+  return t === "up" ? "text-up" : t === "down" ? "text-down" : "text-muted-foreground";
 }
 
 export function relTime(ts: number | null): string {
