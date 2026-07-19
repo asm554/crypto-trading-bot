@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin";
 
 type BotMeta = {
   key: BotKey;
@@ -55,6 +55,13 @@ export const BOTS: BotMeta[] = [
     prefix: "DAY_",
     tagline: "Handelt kurzfristige Kursausschläge, nie länger als ein paar Stunden.",
   },
+  {
+    key: "memecoin",
+    name: "Onchain-Memecoin",
+    nickname: "Der Onchain",
+    prefix: "CHAIN_",
+    tagline: "Kauft Solana-Memecoins bei einem Preis-Breakout über das mehrstündige Hoch.",
+  },
 ];
 
 export type BotSummary = {
@@ -95,6 +102,7 @@ export type EquityPoint = {
   meanrev: number | null;
   arb: number | null;
   daytrade: number | null;
+  memecoin: number | null;
 };
 
 type RawTrade = {
@@ -221,7 +229,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -312,6 +320,23 @@ export function getSettings(): SettingsView {
         { label: "Positionsgröße", value: "10 €" },
         { label: "Max. offene Positionen", value: "4" },
         { label: "Max. Haltedauer", value: "6 Std." },
+      ],
+    },
+    {
+      key: "memecoin",
+      name: "Onchain-Memecoin",
+      nickname: "Der Onchain",
+      params: [
+        { label: "Prüf-Intervall", value: "alle 5 Min." },
+        { label: "Coin-Universum", value: "BONK, WIF, POPCAT, PNUT, GOAT, MEW", hint: "Solana-Memecoins, Kursdaten via DexScreener." },
+        { label: "Einstieg", value: "Breakout über das 6-Std.-Hoch", hint: "+0,5 % Sicherheitsabstand über dem selbst beobachteten Hoch." },
+        { label: "Mindest-Liquidität", value: "50.000 $", hint: "Filtert dünne/riskante Pools raus." },
+        { label: "Gewinnmitnahme", value: "+20 %" },
+        { label: "Verlust-Bremse", value: "−10 %", hint: "Zwingend, da nur Take-Profit unbegrenzte Verluste zuließe." },
+        { label: "Positionsgröße", value: "8 €" },
+        { label: "Max. offene Positionen", value: "3" },
+        { label: "Max. Haltedauer", value: "24 Std." },
+        { label: "Swap-Slippage", value: "1,5 %", hint: "On-chain gibt es kein Bid/Ask – simuliert den AMM-Preisimpact." },
       ],
     },
   ];

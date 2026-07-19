@@ -17,6 +17,7 @@ const config = {
   meanrev: { label: "Der Contrarian", color: "oklch(0.7 0.16 320)" }, // Violett
   arb: { label: "Der Pedant", color: "oklch(0.72 0.17 145)" }, // Grün
   daytrade: { label: "Der Zappler", color: "oklch(0.68 0.2 25)" }, // Rot
+  memecoin: { label: "Der Onchain", color: "oklch(0.72 0.15 195)" }, // Türkis
 } satisfies ChartConfig;
 
 export function EquityChart({ data }: { data: EquityPoint[] }) {
@@ -52,7 +53,7 @@ export function EquityChart({ data }: { data: EquityPoint[] }) {
         />
         <ChartTooltip content={<ChartTooltipContent />} />
         <ChartLegend content={<ChartLegendContent />} />
-        {(["dca", "momentum", "meanrev", "arb", "daytrade"] as const).map((key) => (
+        {(["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin"] as const).map((key) => (
           <Line
             key={key}
             dataKey={key}
