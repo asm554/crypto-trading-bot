@@ -14,13 +14,23 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
   );
 }
 
-export function BotCard({ bot }: { bot: BotSummary }) {
+const MEDALS = ["🥇", "🥈", "🥉"];
+
+/** Platzierungs-Symbol: Medaille für die Top 3, sonst "4.", "5.", ... */
+function rankMarker(rank: number): string {
+  return MEDALS[rank - 1] ?? `${rank}.`;
+}
+
+export function BotCard({ bot, rank }: { bot: BotSummary; rank: number }) {
   return (
-    <Card className="gap-0 overflow-hidden">
+    <Card className={cn("gap-0 overflow-hidden", rank === 1 && "border-primary/50")}>
       <CardHeader className="pb-4">
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2">
+              <span className="text-base leading-none" aria-hidden>
+                {rankMarker(rank)}
+              </span>
               <h3 className="text-base font-semibold">{bot.nickname}</h3>
               <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
                 {bot.name}
