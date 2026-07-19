@@ -60,7 +60,7 @@ export const BOTS: BotMeta[] = [
     name: "Onchain-Memecoin",
     nickname: "Der Onchain",
     prefix: "CHAIN_",
-    tagline: "Kauft Solana-Memecoins bei einem Preis-Breakout über das mehrstündige Hoch.",
+    tagline: "Springt früh auf stark steigende Solana-Memecoins auf und nimmt den Gewinn bei rund +15 % mit.",
   },
 ];
 
@@ -329,9 +329,9 @@ export function getSettings(): SettingsView {
       params: [
         { label: "Prüf-Intervall", value: "alle 5 Min." },
         { label: "Coin-Universum", value: "BONK, WIF, POPCAT, PNUT, GOAT, MEW", hint: "Solana-Memecoins, Kursdaten via DexScreener." },
-        { label: "Einstieg", value: "Breakout über das 6-Std.-Hoch", hint: "+0,5 % Sicherheitsabstand über dem selbst beobachteten Hoch." },
+        { label: "Einstieg bei Momentum", value: "+8 % bis +60 % (letzte Stunde)", hint: "Springt früh auf einen frischen Anstieg auf; die Obergrenze vermeidet den Kauf in einen schon auslaufenden Pump." },
         { label: "Mindest-Liquidität", value: "50.000 $", hint: "Filtert dünne/riskante Pools raus." },
-        { label: "Gewinnmitnahme", value: "+20 %" },
+        { label: "Gewinnmitnahme", value: "+15 %" },
         { label: "Verlust-Bremse", value: "−10 %", hint: "Zwingend, da nur Take-Profit unbegrenzte Verluste zuließe." },
         { label: "Positionsgröße", value: "8 €" },
         { label: "Max. offene Positionen", value: "3" },

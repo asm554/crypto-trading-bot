@@ -1,4 +1,4 @@
-"""On-Chain Memecoin-Breakout-Bot — Der Onchain.
+"""On-Chain Memecoin-Momentum-Bot — Der Onchain.
 
 Handelt Solana-Memecoins über öffentliche DexScreener-Marktdaten (kein Wallet,
 kein API-Key, keine echte Order — reines Paper-Trading). Anders als die
@@ -6,17 +6,22 @@ Kraken-Bots gibt es hier kein Orderbuch mit Bid/Ask: DexScreener liefert nur
 den aktuellen Pool-Preis (``priceUsd``). Fills simulieren deshalb einen
 AMM-typischen Slippage-/Preis-Impact-Aufschlag statt eines echten Spreads.
 
-Einstieg ist ein Preis-Breakout über das eigene, rollierende Hoch der letzten
-``lookback_hours`` Stunden (aus selbst gesammelten Preis-Samples, da DexScreener
-keine öffentliche OHLC-Kerzen-API hat) statt eines Market-Cap-Schwellwerts.
-Ausstieg ist bewusst dreifach abgesichert: fester Take-Profit, *zwingender*
-fester Stop-Loss und eine Max-Haltedauer — nur Take-Profit wäre asymmetrisch,
-da Verluste sonst unbegrenzt liefen.
+Einstieg ist ein Momentum-Band: der Bot beobachtet die eigene, rollierende
+Preis-Historie der letzten ``momentum_lookback_min`` Minuten (aus selbst
+gesammelten Preis-Samples, da DexScreener keine öffentliche OHLC-Kerzen-API
+hat) und steigt ein, sobald ein Coin zwischen ``entry_change_pct`` und
+``entry_max_change_pct`` gestiegen ist — früh genug, um noch am Momentum zu
+partizipieren, aber mit einer Obergrenze, um nicht in einen bereits
+auslaufenden Pump zu kaufen. Ausstieg ist bewusst dreifach abgesichert: fester
+Take-Profit (~15 %, realisiert den Gewinn statt ihn laufen zu lassen),
+*zwingender* fester Stop-Loss und eine Max-Haltedauer — nur Take-Profit wäre
+asymmetrisch, da Verluste sonst unbegrenzt liefen.
 """
 
 import asyncio
 import json
 import logging
+import math
 import sqlite3
 import time
 from pathlib import Path
@@ -94,17 +99,18 @@ async def fetch_meme_pairs(symbols: list[str]) -> dict[str, dict]:
     return result
 
 
-class MemecoinBreakoutBot:
+class MemecoinMomentumBot:
     def __init__(
         self,
         initial_capital_eur: float = 100.0,
         interval_sec: int = 300,
-        lookback_hours: float = 6.0,
-        breakout_margin_pct: float = 0.5,
+        momentum_lookback_min: float = 60.0,
+        entry_change_pct: float = 8.0,
+        entry_max_change_pct: float = 60.0,
         min_liquidity_usd: float = 50_000.0,
         position_eur: float = 8.0,
         max_open_positions: int = 3,
-        take_profit_pct: float = 20.0,
+        take_profit_pct: float = 15.0,
         stop_loss_pct: float = 10.0,
         max_hold_sec: int = 24 * 3600,
         cooldown_sec: int = 4 * 3600,
@@ -116,8 +122,9 @@ class MemecoinBreakoutBot:
         self.initial_capital_eur = float(initial_capital_eur)
         self.capital_remaining = float(initial_capital_eur)
         self.interval_sec = int(interval_sec)
-        self.lookback_hours = float(lookback_hours)
-        self.breakout_margin_pct = float(breakout_margin_pct)
+        self.momentum_lookback_min = float(momentum_lookback_min)
+        self.entry_change_pct = float(entry_change_pct)
+        self.entry_max_change_pct = float(entry_max_change_pct)
         self.min_liquidity_usd = float(min_liquidity_usd)
         self.position_eur = float(position_eur)
         self.max_open_positions = int(max_open_positions)
@@ -131,7 +138,7 @@ class MemecoinBreakoutBot:
         self.snapshot_interval_sec = int(snapshot_interval_sec)
         if not self.paper_mode:
             logger.warning("Memecoin live mode is intentionally not implemented")
-            raise NotImplementedError("MemecoinBreakoutBot is paper-only")
+            raise NotImplementedError("MemecoinMomentumBot is paper-only")
 
         data_dir = Path(paper_db_module.DB_PATH).resolve().parent
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -219,23 +226,27 @@ class MemecoinBreakoutBot:
     def _update_history(self, symbol: str, ts: float, price_usd: float) -> None:
         hist = self.price_history.setdefault(symbol, [])
         hist.append([ts, price_usd])
-        cutoff = ts - self.lookback_hours * 3600
+        cutoff = ts - self.momentum_lookback_min * 60
         hist[:] = [p for p in hist if p[0] >= cutoff]
 
-    def _rolling_high(self, symbol: str) -> float | None:
-        """Höchster bisher beobachteter Preis im Lookback-Fenster.
+    def _momentum_change_pct(self, symbol: str) -> float | None:
+        """% Änderung seit dem ältesten Preis-Sample im Momentum-Fenster.
 
-        Verlangt Historie über mindestens die halbe Fensterbreite, damit ein
-        einzelner erster Datenpunkt nicht sofort fälschlich als "Breakout"
-        gilt (der Bot hat dann schlicht noch keine verlässliche Referenz).
+        Verlangt Historie über mindestens die halbe Fensterbreite — kurz genug,
+        damit der Bot früh auf einen frischen Pump aufspringen kann, aber nicht
+        so kurz, dass ein einzelner verrauschter Preis-Tick schon als Momentum
+        durchgeht.
         """
         hist = self.price_history.get(symbol) or []
         if len(hist) < 2:
             return None
         span = hist[-1][0] - hist[0][0]
-        if span < self.lookback_hours * 3600 * 0.5:
+        if span < self.momentum_lookback_min * 60 * 0.5:
             return None
-        return max(p[1] for p in hist[:-1])
+        oldest_price = hist[0][1]
+        if oldest_price <= 0:
+            return None
+        return (hist[-1][1] - oldest_price) / oldest_price * 100
 
     async def _get_eur_usd_rate(self) -> float:
         ticker = await fetch_ticker_data([EURUSD_PAIR])
@@ -329,16 +340,20 @@ class MemecoinBreakoutBot:
             if liquidity_usd < self.min_liquidity_usd:
                 logger.info("⏭️ CHAIN %s: Liquidität %.0f$ < %.0f$", symbol, liquidity_usd, self.min_liquidity_usd)
                 continue
-            high = self._rolling_high(symbol)
-            if high is None:
-                logger.info("⏭️ CHAIN %s: noch nicht genug Historie für %.1fh-Hoch", symbol, self.lookback_hours)
+            change_pct = self._momentum_change_pct(symbol)
+            if change_pct is None:
+                logger.info("⏭️ CHAIN %s: noch nicht genug Historie für %.0fmin-Momentum", symbol, self.momentum_lookback_min)
                 continue
-            if price_usd <= high * (1 + self.breakout_margin_pct / 100):
+            if not (self.entry_change_pct <= change_pct <= self.entry_max_change_pct):
+                logger.info("⏭️ CHAIN %s: Momentum %+0.2f%% nicht in %.2f..%.2f%%", symbol, change_pct, self.entry_change_pct, self.entry_max_change_pct)
                 continue
-            candidates.append((symbol, price_usd, liquidity_usd))
+            # Score wie beim Momentum-Kraken-Bot: starke Bewegung mit echter
+            # Liquidität schlägt starke Bewegung in einem dünnen Pool.
+            score = change_pct * math.log10(max(liquidity_usd, 1.0))
+            candidates.append((symbol, price_usd, score))
         candidates.sort(key=lambda t: t[2], reverse=True)
         opened = []
-        for symbol, price_usd, _liq in candidates:
+        for symbol, price_usd, _score in candidates:
             if len(self.portfolio) >= self.max_open_positions:
                 break
             amount = min(self.position_eur, self.capital_remaining)

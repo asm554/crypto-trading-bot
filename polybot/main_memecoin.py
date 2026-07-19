@@ -8,7 +8,7 @@ from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
 from polybot.paper_db import init_db
-from polybot.memecoin_strategy import MemecoinBreakoutBot
+from polybot.memecoin_strategy import MemecoinMomentumBot
 
 os.makedirs("logs", exist_ok=True)
 handler = logging.handlers.RotatingFileHandler("logs/memecoin_bot.log", maxBytes=20*1024*1024, backupCount=3)
@@ -20,12 +20,13 @@ logger.addHandler(logging.StreamHandler())
 
 BUDGET = float(os.getenv("CHAIN_BUDGET", "100"))
 INTERVAL_SEC = int(os.getenv("CHAIN_INTERVAL_SEC", "300"))
-LOOKBACK_H = float(os.getenv("CHAIN_LOOKBACK_H", "6"))
-BREAKOUT_MARGIN_PCT = float(os.getenv("CHAIN_BREAKOUT_MARGIN_PCT", "0.5"))
+MOMENTUM_LOOKBACK_MIN = float(os.getenv("CHAIN_MOMENTUM_LOOKBACK_MIN", "60"))
+ENTRY_CHANGE_PCT = float(os.getenv("CHAIN_ENTRY_CHANGE_PCT", "8.0"))
+ENTRY_MAX_CHANGE_PCT = float(os.getenv("CHAIN_ENTRY_MAX_CHANGE_PCT", "60.0"))
 MIN_LIQUIDITY_USD = float(os.getenv("CHAIN_MIN_LIQUIDITY_USD", "50000"))
 POSITION_EUR = float(os.getenv("CHAIN_POSITION_EUR", "8"))
 MAX_OPEN_POSITIONS = int(os.getenv("CHAIN_MAX_OPEN_POSITIONS", "3"))
-TAKE_PROFIT_PCT = float(os.getenv("CHAIN_TAKE_PROFIT_PCT", "20"))
+TAKE_PROFIT_PCT = float(os.getenv("CHAIN_TAKE_PROFIT_PCT", "15"))
 STOP_LOSS_PCT = float(os.getenv("CHAIN_STOP_LOSS_PCT", "10"))
 MAX_HOLD_H = float(os.getenv("CHAIN_MAX_HOLD_H", "24"))
 COOLDOWN_H = float(os.getenv("CHAIN_COOLDOWN_H", "4"))
@@ -34,11 +35,12 @@ PAPER_MODE = os.getenv("CHAIN_PAPER_MODE", "true").lower() == "true"
 
 async def main():
     await init_db()
-    bot = MemecoinBreakoutBot(
+    bot = MemecoinMomentumBot(
         initial_capital_eur=BUDGET,
         interval_sec=INTERVAL_SEC,
-        lookback_hours=LOOKBACK_H,
-        breakout_margin_pct=BREAKOUT_MARGIN_PCT,
+        momentum_lookback_min=MOMENTUM_LOOKBACK_MIN,
+        entry_change_pct=ENTRY_CHANGE_PCT,
+        entry_max_change_pct=ENTRY_MAX_CHANGE_PCT,
         min_liquidity_usd=MIN_LIQUIDITY_USD,
         position_eur=POSITION_EUR,
         max_open_positions=MAX_OPEN_POSITIONS,
