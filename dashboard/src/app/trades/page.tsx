@@ -13,9 +13,9 @@ export default async function TradesPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold">Trades</h1>
+        <h1 className="text-2xl font-bold">Trades</h1>
         <p className="text-sm text-muted-foreground">
-          Alle Trades der drei Bots, nach Status und Bot filterbar.
+          Alle Trades der fünf Bots, nach Status und Bot filterbar.
         </p>
       </div>
 

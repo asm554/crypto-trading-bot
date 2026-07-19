@@ -11,13 +11,14 @@ import {
 } from "@/components/ui/chart";
 import type { EquityPoint } from "@/lib/bots";
 
+// Farben kommen aus globals.css (--bot-*), damit Karten und Chart identisch sind.
 const config = {
-  dca: { label: "Der Brave", color: "oklch(0.7 0.15 240)" }, // Blau
-  momentum: { label: "Der Zocker", color: "oklch(0.78 0.16 70)" }, // Orange
-  meanrev: { label: "Der Contrarian", color: "oklch(0.7 0.16 320)" }, // Violett
-  arb: { label: "Der Pedant", color: "oklch(0.72 0.17 145)" }, // Grün
-  daytrade: { label: "Der Zappler", color: "oklch(0.68 0.2 25)" }, // Rot
-  memecoin: { label: "Der Onchain", color: "oklch(0.72 0.15 195)" }, // Türkis
+  dca: { label: "Der Brave", color: "var(--bot-dca)" },
+  momentum: { label: "Der Zocker", color: "var(--bot-momentum)" },
+  meanrev: { label: "Der Contrarian", color: "var(--bot-meanrev)" },
+  arb: { label: "Der Pedant", color: "var(--bot-arb)" },
+  daytrade: { label: "Der Zappler", color: "var(--bot-daytrade)" },
+  memecoin: { label: "Der Onchain", color: "var(--bot-memecoin)" },
 } satisfies ChartConfig;
 
 export function EquityChart({ data }: { data: EquityPoint[] }) {

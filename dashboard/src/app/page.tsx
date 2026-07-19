@@ -32,7 +32,7 @@ export default async function OverviewPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Übersicht</h1>
+          <h1 className="text-2xl font-bold">Übersicht</h1>
           <p className="text-sm text-muted-foreground">
             {bots.length} Bots handeln mit Spielgeld gegeneinander. Wer macht am meisten daraus?
           </p>
@@ -41,28 +41,40 @@ export default async function OverviewPage() {
       </div>
 
       {/* Gesamt-Kachel */}
-      <Card>
-        <CardContent className="flex flex-wrap items-center justify-between gap-6 py-5">
+      <Card className="relative overflow-hidden">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_120%_at_15%_0%,_oklch(0.86_0.155_92_/_9%),_transparent_60%)]"
+        />
+        <CardContent className="relative flex flex-wrap items-center justify-between gap-6 py-5">
           <div>
-            <div className="text-xs text-muted-foreground">Gesamtwert aller Bots</div>
-            <div className="text-3xl font-semibold tabular-nums">{eur(totalEquity)}</div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              Gesamtwert aller Bots
+            </div>
+            <div className="mt-1 font-mono text-4xl font-semibold tabular-nums">
+              {eur(totalEquity)}
+            </div>
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">Gewinn/Verlust gesamt</div>
-            <div className={cn("text-2xl font-semibold tabular-nums", pnlToneClass(totalPnl))}>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              Gewinn/Verlust gesamt
+            </div>
+            <div className={cn("mt-1 font-mono text-2xl font-semibold tabular-nums", pnlToneClass(totalPnl))}>
               {signedEur(totalPnl)}{" "}
               <span className="text-base">({signedPct((totalPnl / invested) * 100)})</span>
             </div>
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">Eingesetztes Startkapital</div>
-            <div className="text-2xl font-semibold tabular-nums">{eur(invested)}</div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              Eingesetztes Startkapital
+            </div>
+            <div className="mt-1 font-mono text-2xl font-semibold tabular-nums">{eur(invested)}</div>
           </div>
         </CardContent>
       </Card>
 
       {/* Bot-Karten */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {bots.map((bot) => (
           <BotCard key={bot.key} bot={bot} />
         ))}
@@ -71,7 +83,7 @@ export default async function OverviewPage() {
       {/* Verlauf */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Wert-Verlauf</CardTitle>
+          <CardTitle className="font-heading text-base font-bold">Wert-Verlauf</CardTitle>
         </CardHeader>
         <CardContent>
           <EquityChart data={equity} />
@@ -81,7 +93,7 @@ export default async function OverviewPage() {
       {/* Letzte Trades */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Letzte Trades</CardTitle>
+          <CardTitle className="font-heading text-base font-bold">Letzte Trades</CardTitle>
         </CardHeader>
         <CardContent>
           {trades.length === 0 ? (
@@ -106,8 +118,17 @@ export default async function OverviewPage() {
               <TableBody>
                 {trades.map((t) => (
                   <TableRow key={t.id}>
-                    <TableCell className="text-muted-foreground">{clockTime(t.timestamp)}</TableCell>
-                    <TableCell>{t.bot}</TableCell>
+                    <TableCell className="font-mono text-muted-foreground">{clockTime(t.timestamp)}</TableCell>
+                    <TableCell>
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          aria-hidden
+                          className="h-1.5 w-1.5 rounded-full"
+                          style={{ background: `var(--bot-${t.botKey})` }}
+                        />
+                        {t.bot}
+                      </span>
+                    </TableCell>
                     <TableCell className="font-mono">{t.pair}</TableCell>
                     <TableCell className="text-right font-mono tabular-nums">{eur(t.sizeEur)}</TableCell>
                     <TableCell>

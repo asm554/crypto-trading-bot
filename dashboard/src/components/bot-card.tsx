@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -15,28 +16,43 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 }
 
 export function BotCard({ bot }: { bot: BotSummary }) {
+  const botColor = `var(--bot-${bot.key})`;
   return (
-    <Card className="gap-0 overflow-hidden">
+    <Card
+      className="relative gap-0 overflow-hidden transition-shadow hover:shadow-[0_0_28px_-10px_var(--glow)]"
+      style={{ "--glow": botColor } as CSSProperties}
+    >
+      {/* Erkennungsfarbe des Bots als Leuchtkante oben */}
+      <div
+        aria-hidden
+        className="absolute inset-x-0 top-0 h-0.5"
+        style={{ background: `linear-gradient(to right, ${botColor}, transparent 85%)` }}
+      />
       <CardHeader className="pb-4">
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-base font-semibold">{bot.nickname}</h3>
+              <span
+                aria-hidden
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ background: botColor, boxShadow: `0 0 8px ${botColor}` }}
+              />
+              <h3 className="font-heading text-base font-bold">{bot.nickname}</h3>
               <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
                 {bot.name}
               </Badge>
             </div>
             <p className="mt-1 max-w-[15rem] text-xs text-muted-foreground">{bot.tagline}</p>
           </div>
-          <Badge variant="secondary" className="shrink-0 text-xs">
+          <Badge variant="secondary" className="shrink-0 font-mono text-xs tabular-nums">
             {bot.openPositions} offen
           </Badge>
         </div>
 
         <div className="mt-4 flex items-end justify-between">
           <div>
-            <div className="text-2xl font-semibold tabular-nums">{eur(bot.equityEur)}</div>
-            <div className={cn("text-sm font-medium", pnlToneClass(bot.totalPnlEur))}>
+            <div className="font-mono text-2xl font-semibold tabular-nums">{eur(bot.equityEur)}</div>
+            <div className={cn("font-mono text-sm font-medium tabular-nums", pnlToneClass(bot.totalPnlEur))}>
               {signedEur(bot.totalPnlEur)} ({signedPct(bot.pnlPct)})
             </div>
           </div>
