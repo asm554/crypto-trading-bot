@@ -63,9 +63,11 @@ export default async function OverviewPage() {
 
       {/* Bot-Karten */}
       <div className="grid gap-4 lg:grid-cols-3">
-        {bots.map((bot) => (
-          <BotCard key={bot.key} bot={bot} />
-        ))}
+        {[...bots]
+          .sort((a, b) => b.totalPnlEur - a.totalPnlEur)
+          .map((bot, idx) => (
+            <BotCard key={bot.key} bot={bot} rank={idx + 1} />
+          ))}
       </div>
 
       {/* Verlauf */}
