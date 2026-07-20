@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "surfer" | "scout" | "hodl";
 
 type BotMeta = {
   key: BotKey;
@@ -62,6 +62,21 @@ export const BOTS: BotMeta[] = [
     prefix: "CHAIN_",
     tagline: "Springt früh auf stark steigende Solana-Memecoins auf und nimmt den Gewinn bei rund +15 % mit.",
   },
+  {
+    key: "surfer",
+    name: "Trend/Breakout",
+    nickname: "Der Surfer",
+    prefix: "SURF_",
+    tagline: "Reitet bestätigte SOL/EUR-Trends: 4h-Aufwärtstrend, EMA20 über EMA50 und ein 20h-Ausbruch müssen zusammenkommen.",
+  },
+  {
+    key: "scout",
+    name: "New-Pool Scout",
+    nickname: "Der Spaeher",
+    prefix: "SCOUT_",
+    tagline: "Beobachtet neue Solana-Pools 20 Minuten und handelt nur nach harten Sicherheits-, Aktivitaets- und Route-Checks.",
+  },
+  { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", prefix: "HODL_", tagline: "Investiert woechentlich regelbasiert in BTC, ETH und SOL und behaelt einen dauerhaften Kern." },
 ];
 
 export type BotSummary = {
@@ -103,6 +118,9 @@ export type EquityPoint = {
   arb: number | null;
   daytrade: number | null;
   memecoin: number | null;
+  surfer: number | null;
+  scout: number | null;
+  hodl: number | null;
 };
 
 type RawTrade = {
@@ -200,7 +218,7 @@ function toTradeRow(r: RawTrade): TradeRow {
   // Auflösung, da zwei dynamisch entdeckte Solana-Tokens denselben Namen
   // tragen können) — im Dashboard reicht das Symbol vor dem "@".
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
-  const pair = meta?.key === "memecoin" ? rest.split("@")[0] : rest;
+  const pair = meta?.key === "memecoin" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
   return {
     id: r.id,
     botKey: meta?.key ?? "?",
@@ -234,7 +252,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, surfer: null, scout: null, hodl: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -347,6 +365,48 @@ export function getSettings(): SettingsView {
         { label: "Swap-Slippage", value: "1,5 %", hint: "On-chain gibt es kein Bid/Ask – simuliert den AMM-Preisimpact." },
       ],
     },
+    {
+      key: "surfer",
+      name: "Trend/Breakout",
+      nickname: "Der Surfer",
+      params: [
+        { label: "Handelspaar", value: "SOL/EUR", hint: "Einziges gehandeltes Paar, maximal 1 offene Position." },
+        { label: "Einstiegsbedingungen", value: "4h-Aufwärtstrend + EMA20 > EMA50 + 20h-Ausbruch + erhöhtes Volumen", hint: "Alle vier müssen gleichzeitig erfüllt sein – bewusst selten." },
+        { label: "Initialer Stop", value: "ATR-basiert (2× ATR14)", hint: "Passt sich der aktuellen Volatilität an." },
+        { label: "Gewinnsicherung", value: "Trailing-Stop 3 %", hint: "Kein fester Take-Profit, Gewinne laufen mit dem Trend." },
+        { label: "Trend-Exit", value: "EMA20 kreuzt unter EMA50" },
+        { label: "Max. Haltedauer", value: "7 Tage" },
+        { label: "Risiko pro Trade", value: "max. 0,50 €", hint: "Bestimmt die Positionsgröße über den ATR-Stop-Abstand." },
+        { label: "Max. Positionsgröße", value: "25 €" },
+        { label: "Verlustpause", value: "24 Std. nach 3 Verlusten in Folge" },
+        { label: "Kontoverlust-Sperre", value: "−10 %", hint: "Ab dieser Verlustgrenze keine neuen Einstiege, offene Positionen laufen weiter." },
+      ],
+    },
+    {
+      key: "scout",
+      name: "New-Pool Scout",
+      nickname: "Der Spaeher",
+      params: [
+        { label: "Pruef-Intervall", value: "alle 30 Sek." },
+        { label: "Reifezeit", value: "20 Min.", hint: "Neue Pools werden vor jeder Bewertung beobachtet." },
+        { label: "Sicherheits-Gates", value: "Mint + Freeze deaktiviert, Audit/Shield sauber" },
+        { label: "Markt-Gates", value: "ab 40.000 $ Liquiditaet, 150 Holdern und Score 60/100" },
+        { label: "Route-Gate", value: "max. 1,5 % Preiswirkung, 8 % Rundreisekosten" },
+        { label: "Positionsgroesse", value: "5 €", hint: "Maximal zwei Positionen; 85 € bleiben Barreserve." },
+        { label: "Verlust-Bremse", value: "-12 %" },
+        { label: "Gewinnmitnahme", value: "+25 %; Trailing ab +10 %" },
+        { label: "Max. Haltedauer", value: "6 Std." },
+        { label: "Risk-off", value: "12 Std. nach 2 Verlusten; Kontolimit -8 %" },
+      ],
+    },
+    { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", params: [
+      { label: "Wochenbudget", value: "max. 20 €", hint: "20 € Barreserve bleiben unangetastet." },
+      { label: "Basisverteilung", value: "50 % BTC, 30 % ETH, 20 % SOL" },
+      { label: "Marktphase", value: "EMA50/EMA200 + 90-Tage-Momentum" },
+      { label: "Baerenmarkt", value: "nur 35 % der Rate in BTC" },
+      { label: "Gewinnmitnahme", value: "25 % bei +100 %, 25 % bei +200 %; Kern bleibt" },
+      { label: "Stops", value: "kein normaler Stop-Loss" },
+    ] },
   ];
 
   return { fees, strategies };
