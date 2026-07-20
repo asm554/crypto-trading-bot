@@ -11,7 +11,7 @@ from polybot import config
 from polybot import paper_db as paper_db_module
 from polybot.alerts import send_telegram
 from polybot.dca_strategy import PAIR_MAP, extract_quote, fetch_ticker_data
-from polybot.memecoin_strategy import DEFAULT_SLIPPAGE_PCT, EURUSD_INTERNAL, EURUSD_PAIR, FALLBACK_EUR_USD_RATE, fetch_pairs_by_address
+from polybot.memecoin_strategy import DEFAULT_DEX_FEE_PCT, DEFAULT_SLIPPAGE_PCT, EURUSD_INTERNAL, EURUSD_PAIR, FALLBACK_EUR_USD_RATE, fetch_pairs_by_address
 from polybot.paper_db import DB_PATH, get_open_trades_by_prefix, init_db, log_equity_snapshot
 
 DATA_DIR = Path(DB_PATH).resolve().parent
@@ -90,7 +90,7 @@ async def equity_for_memecoin(prefix: str, state_path: Path, bot: str) -> dict:
     Adresse nach dem ``@`` ist der Teil, der gegen DexScreener aufgelöst wird.
     Bewertung sonst wie ``equity_for``: Cash aus dem State, offene Positionen
     zum aktuellen Preis abzüglich Verkaufs-Slippage (da es on-chain kein Bid
-    gibt, siehe memecoin_strategy.py).
+    gibt) und der mechanischen DEX-Gebühr, siehe memecoin_strategy.py.
     """
     cash = load_cash(state_path)
     open_rows = await get_open_trades_by_prefix(prefix)
@@ -114,7 +114,7 @@ async def equity_for_memecoin(prefix: str, state_path: Path, bot: str) -> dict:
             mtm += entry_cost
             continue
         price_usd = float(pair["priceUsd"])
-        current_value = shares * (price_usd / rate) * (1 - DEFAULT_SLIPPAGE_PCT / 100)
+        current_value = shares * (price_usd / rate) * (1 - DEFAULT_SLIPPAGE_PCT / 100) * (1 - DEFAULT_DEX_FEE_PCT / 100)
         mtm += current_value
         unrealized += current_value - entry_cost
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
