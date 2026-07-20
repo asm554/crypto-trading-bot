@@ -34,8 +34,16 @@ export default function RootLayout({
       className={`dark ${geistSans.variable} ${geistMono.variable} ${bricolage.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
+        <a
+          href="#main"
+          className="skip-link rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+        >
+          Zum Inhalt springen
+        </a>
         <Nav />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
+        <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+          {children}
+        </main>
       </body>
     </html>
   );

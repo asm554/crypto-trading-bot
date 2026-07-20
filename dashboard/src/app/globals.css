@@ -135,6 +135,9 @@
   --bot-arb: oklch(0.72 0.17 145);
   --bot-daytrade: oklch(0.68 0.2 25);
   --bot-memecoin: oklch(0.72 0.15 195);
+  --bot-surfer: oklch(0.73 0.16 100);
+  --bot-scout: oklch(0.72 0.15 20);
+  --bot-hodl: oklch(0.72 0.14 285);
   --up: oklch(0.78 0.16 160);
   --down: oklch(0.68 0.2 25);
 }
@@ -165,4 +168,28 @@
   ::selection {
     background: oklch(0.86 0.155 92 / 30%);
   }
+  /* A11y: Nutzer, die reduzierte Bewegung eingestellt haben, bekommen keine
+     Ping-/Spin-/Pulse-Loops (Live-Indikator, Refresh-Icon) aufgezwungen. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Tastatur-Nutzer: Skip-Link, sonst unsichtbar. */
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -3rem;
+  z-index: 50;
+  transition: top 150ms ease-out;
+}
+.skip-link:focus {
+  top: 1rem;
 }

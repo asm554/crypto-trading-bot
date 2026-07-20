@@ -1,0 +1,34 @@
+[Unit]
+Description=Polybot Surfer (Der Surfer) — Paper Trading
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/crypto-trading-bot
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_surfer
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+Environment=SURF_BUDGET=100
+Environment=SURF_INTERVAL_SEC=3600
+Environment=SURF_TREND_LOOKBACK_H=4
+Environment=SURF_MIN_TREND_PCT=0.0
+Environment=SURF_BREAKOUT_LOOKBACK_H=20
+Environment=SURF_EMA_FAST_PERIOD=20
+Environment=SURF_EMA_SLOW_PERIOD=50
+Environment=SURF_ATR_PERIOD=14
+Environment=SURF_ATR_STOP_MULTIPLIER=2.0
+Environment=SURF_VOLUME_MULTIPLIER=1.2
+Environment=SURF_MAX_RISK_EUR=0.50
+Environment=SURF_MAX_POSITION_EUR=25
+Environment=SURF_TRAILING_STOP_PCT=3.0
+Environment=SURF_MAX_HOLD_H=168
+Environment=SURF_LOSS_STREAK_LIMIT=3
+Environment=SURF_LOSS_PAUSE_H=24
+Environment=SURF_ACCOUNT_LOSS_LIMIT_PCT=10.0
+Environment=SURF_PAPER_MODE=true
+
+[Install]
+WantedBy=multi-user.target

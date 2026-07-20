@@ -44,3 +44,11 @@ export function clockTime(ts: number): string {
     minute: "2-digit",
   });
 }
+
+export function calendarDate(ts: number): string {
+  return new Date(ts * 1000).toLocaleDateString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}

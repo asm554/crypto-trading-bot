@@ -3,26 +3,52 @@
 Handelt Solana-Memecoins über öffentliche DexScreener-Marktdaten (kein Wallet,
 kein API-Key, keine echte Order — reines Paper-Trading). Anders als die
 Kraken-Bots gibt es hier kein Orderbuch mit Bid/Ask: DexScreener liefert nur
-den aktuellen Pool-Preis (``priceUsd``). Fills simulieren deshalb einen
-AMM-typischen Slippage-/Preis-Impact-Aufschlag statt eines echten Spreads.
+den aktuellen Pool-Preis (``priceUsd``). Fills simulieren deshalb zwei
+getrennte Kosten statt eines echten Spreads: einen AMM-typischen
+Slippage-/Preis-Impact-Aufschlag (``slippage_pct``) und zusätzlich die
+mechanische Swap-Gebühr des DEX/der Bonding-Curve (``dex_fee_pct``, Default
+~1 % wie bei pump.fun vor der Raydium-Migration) — beide ziehen bei einem
+echten Trade unabhängig voneinander ab.
 
 Universum ist hybrid: ein kuratierter Kern fest verifizierter Mint-Adressen
 (``SYMBOL_TO_MINT``) plus optional dynamisch entdeckte Solana-Tokens aus
 DexScreeners öffentlichen Boost-/Profile-Feeds (``discover_dynamic_solana_tokens``).
-Diese Feeds sind bezahlte Promotion, keine organische Kennzahl — deshalb nur
-eine Kandidaten-Quelle, scharf nachgefiltert über Liquidität, Volumen,
-Kaufdruck und (nur für nicht-kuratierte Tokens) Mindestalter des Pools.
+Diese Feeds sind bezahlte Promotion, keine organische Kennzahl — ein erster
+Live-Tag zeigte, dass sie das Trading sonst komplett dominieren (5 von 6
+Trades), deshalb gelten für dynamische Kandidaten eigene, strengere Gates
+(``min_liquidity_dynamic_usd``, ``min_volume_dynamic_usd``, ein höheres
+Mindestalter des Pools ``min_pair_age_hours`` und ein Positionslimit
+``max_dynamic_positions``), während der kuratierte Kern ein eigenes, tieferes
+Volumen-Gate (``min_volume_usd``) hat, das ihn nicht mehr aus dem eigenen
+Universum aussperrt.
 
-Einstieg ist ein Momentum-Band: der Bot beobachtet die eigene, rollierende
-Preis-Historie der letzten ``momentum_lookback_min`` Minuten (aus selbst
-gesammelten Preis-Samples, da DexScreener keine öffentliche OHLC-Kerzen-API
-hat) und steigt ein, sobald ein Coin zwischen ``entry_change_pct`` und
-``entry_max_change_pct`` gestiegen ist — früh genug, um noch am Momentum zu
-partizipieren, aber mit einer Obergrenze, um nicht in einen bereits
-auslaufenden Pump zu kaufen. Ausstieg ist bewusst dreifach abgesichert: fester
-Take-Profit (~15 %, realisiert den Gewinn statt ihn laufen zu lassen),
-*zwingender* fester Stop-Loss und eine Max-Haltedauer — nur Take-Profit wäre
-asymmetrisch, da Verluste sonst unbegrenzt liefen.
+Einstieg ist ein Momentum-Band auf DexScreeners nativem ``priceChange.h1``
+(kein selbst gepflegter Preis-Verlauf mehr nötig, DexScreener liefert die
+Fenster m5/h1/h6/h24 direkt im Pair-Objekt): der Bot steigt ein, sobald ein
+Coin zwischen ``entry_change_pct`` und ``entry_max_change_pct`` gestiegen ist
+— früh genug, um noch am Momentum zu partizipieren, aber mit einer
+Obergrenze, um nicht in einen bereits auslaufenden Pump zu kaufen. Zwei
+Frische-Gates sichern das zusätzlich ab: ``priceChange.m5`` muss noch positiv
+sein (Pump läuft gerade noch) und ``priceChange.h6`` darf ``max_h6_change_pct``
+nicht überschreiten (kein Kauf am Ende eines Tages-Blowoffs). Das
+Kaufdruck-Gate (h1 buys/sells-Verhältnis) verlangt zusätzlich eine
+Mindest-Stichprobe (``min_h1_txns``), damit es nicht mit ein paar
+Mini-Transaktionen leicht zu erfüllen ist.
+
+Ausstieg ist ein Hybrid aus festem Floor und Trailing-Stop, nach demselben
+``peak_price``-Muster wie beim Momentum-Bot (``momentum_strategy.py``):
+erreicht eine Position ``take_profit_pct`` (~15 %), wird nicht sofort
+verkauft, sondern in den Trailing-Modus geschaltet — der Exit-Preis ist dann
+das Maximum aus einem festen Gewinn-Floor (``trail_floor_pct`` über Einstand)
+und dem Hoch minus ``trailing_stop_pct``. So kann ein Gewinner weiterlaufen,
+ohne dass der bereits erreichte Gewinn beim Rückfall verloren geht. *Vor*
+Erreichen der Take-Profit-Schwelle bleibt ein *zwingender* fester Stop-Loss
+und eine Max-Haltedauer als harte Sicherheitsnetze aktiv — nur ein
+Take-Profit/Trailing wäre asymmetrisch, da Verluste sonst unbegrenzt liefen.
+Ein Exit über Stop-Loss löst zusätzlich einen längeren Cooldown aus
+(``cooldown_after_stop_sec``) als ein Exit über Take-Profit/Trailing/Zeit
+(``cooldown_sec``) — verhindert Revenge-Trading auf einem Coin, der gerade
+gegen den Bot gelaufen ist.
 
 Intern wird nach Mint-Adresse geschlüsselt, nicht nach Ticker: zwei dynamisch
 entdeckte Tokens können denselben Namen tragen (Solana ist permissionless).
@@ -87,6 +113,13 @@ FALLBACK_EUR_USD_RATE = 1.08
 # Auch von battle_report.py als Default für die Mark-to-Market-Bewertung
 # offener Positionen wiederverwendet, damit beide Stellen nicht auseinanderlaufen.
 DEFAULT_SLIPPAGE_PCT = 1.5
+# Mechanische Swap-Gebühr des DEX/der Bonding-Curve (z.B. pump.fun ~1%,
+# Raydium-AMM-Pools eher ~0.25%) — unabhängig vom Preis-Impact/Slippage oben,
+# der die Bewegung des Pool-Preises durch den eigenen Trade abbildet. Beides
+# zusammen zieht real ab; hier bewusst konservativ mit dem höheren
+# Bonding-Curve-Satz als Default, da ein Großteil frischer Memecoin-Pumps
+# noch vor der Raydium-Migration läuft.
+DEFAULT_DEX_FEE_PCT = 1.0
 
 
 async def fetch_pairs_by_address(addresses: list[str]) -> dict[str, dict]:
@@ -175,22 +208,30 @@ class MemecoinMomentumBot:
         self,
         initial_capital_eur: float = 100.0,
         interval_sec: int = 300,
-        momentum_lookback_min: float = 60.0,
         entry_change_pct: float = 8.0,
-        entry_max_change_pct: float = 60.0,
+        entry_max_change_pct: float = 35.0,
+        max_h6_change_pct: float = 100.0,
         min_liquidity_usd: float = 50_000.0,
-        min_volume_usd: float = 250_000.0,
+        min_liquidity_dynamic_usd: float = 100_000.0,
+        min_volume_usd: float = 100_000.0,
+        min_volume_dynamic_usd: float = 500_000.0,
         min_buy_sell_ratio: float = 1.2,
+        min_h1_txns: int = 50,
         dynamic_enabled: bool = True,
         max_dynamic_tokens: int = 15,
-        min_pair_age_hours: float = 6.0,
+        max_dynamic_positions: int = 2,
+        min_pair_age_hours: float = 24.0,
         position_eur: float = 8.0,
         max_open_positions: int = 3,
         take_profit_pct: float = 15.0,
+        trailing_stop_pct: float = 12.0,
+        trail_floor_pct: float = 5.0,
         stop_loss_pct: float = 10.0,
         max_hold_sec: int = 24 * 3600,
         cooldown_sec: int = 4 * 3600,
+        cooldown_after_stop_sec: int = 24 * 3600,
         slippage_pct: float = DEFAULT_SLIPPAGE_PCT,
+        dex_fee_pct: float = DEFAULT_DEX_FEE_PCT,
         curated_addresses: list[str] | None = None,
         paper_mode: bool = True,
         snapshot_interval_sec: int = 3600,
@@ -198,22 +239,30 @@ class MemecoinMomentumBot:
         self.initial_capital_eur = float(initial_capital_eur)
         self.capital_remaining = float(initial_capital_eur)
         self.interval_sec = int(interval_sec)
-        self.momentum_lookback_min = float(momentum_lookback_min)
         self.entry_change_pct = float(entry_change_pct)
         self.entry_max_change_pct = float(entry_max_change_pct)
+        self.max_h6_change_pct = float(max_h6_change_pct)
         self.min_liquidity_usd = float(min_liquidity_usd)
+        self.min_liquidity_dynamic_usd = float(min_liquidity_dynamic_usd)
         self.min_volume_usd = float(min_volume_usd)
+        self.min_volume_dynamic_usd = float(min_volume_dynamic_usd)
         self.min_buy_sell_ratio = float(min_buy_sell_ratio)
+        self.min_h1_txns = int(min_h1_txns)
         self.dynamic_enabled = bool(dynamic_enabled)
         self.max_dynamic_tokens = int(max_dynamic_tokens)
+        self.max_dynamic_positions = int(max_dynamic_positions)
         self.min_pair_age_hours = float(min_pair_age_hours)
         self.position_eur = float(position_eur)
         self.max_open_positions = int(max_open_positions)
         self.take_profit_pct = float(take_profit_pct)
+        self.trailing_stop_pct = float(trailing_stop_pct)
+        self.trail_floor_pct = float(trail_floor_pct)
         self.stop_loss_pct = float(stop_loss_pct)
         self.max_hold_sec = int(max_hold_sec)
         self.cooldown_sec = int(cooldown_sec)
+        self.cooldown_after_stop_sec = int(cooldown_after_stop_sec)
         self.slippage_pct = float(slippage_pct)
+        self.dex_fee_pct = float(dex_fee_pct)
         self.curated_addresses = list(curated_addresses) if curated_addresses else list(DEFAULT_CURATED_ADDRESSES)
         self.paper_mode = bool(paper_mode)
         self.snapshot_interval_sec = int(snapshot_interval_sec)
@@ -226,7 +275,6 @@ class MemecoinMomentumBot:
         self.state_path = data_dir / "memecoin_state.json"
         self.db_path = Path(paper_db_module.DB_PATH).resolve()
         self.portfolio: dict[str, dict] = {}
-        self.price_history: dict[str, list[list[float]]] = {}
         self.cooldowns: dict[str, float] = {}
         self.last_scan = 0.0
         self.last_snapshot = 0.0
@@ -238,7 +286,6 @@ class MemecoinMomentumBot:
         payload = {
             "capital_remaining": round(self.capital_remaining, 8),
             "portfolio": self.portfolio,
-            "price_history": self.price_history,
             "cooldowns": self.cooldowns,
             "last_scan": self.last_scan,
             "last_snapshot": self.last_snapshot,
@@ -255,7 +302,6 @@ class MemecoinMomentumBot:
                 raw = json.loads(self.state_path.read_text())
                 self.capital_remaining = max(0.0, min(float(raw.get("capital_remaining", self.initial_capital_eur)), self.initial_capital_eur))
                 self.portfolio = raw.get("portfolio") or {}
-                self.price_history = raw.get("price_history") or {}
                 self.cooldowns = {k: float(v) for k, v in (raw.get("cooldowns") or {}).items() if float(v) > time.time()}
                 self.last_scan = float(raw.get("last_scan", 0.0))
                 self.last_snapshot = float(raw.get("last_snapshot", 0.0))
@@ -270,7 +316,6 @@ class MemecoinMomentumBot:
     def _rebuild_state_from_db(self) -> None:
         self.capital_remaining = self.initial_capital_eur
         self.portfolio = {}
-        self.price_history = {}
         self.trade_count = 0
         realized = 0.0
         open_cost = 0.0
@@ -302,37 +347,17 @@ class MemecoinMomentumBot:
                     "cost_basis": amount,
                     "entry_price": price,
                     "entry_ts": float(row["timestamp"] or time.time()),
+                    # Nach einem Rebuild ist die tatsächliche Preisspitze seit Entry
+                    # unbekannt; konservativ mit dem Entry-Preis initialisieren statt
+                    # einen fiktiven Trailing-Vorteil anzunehmen.
+                    "peak_price": price,
+                    "trailing_active": False,
                     "trade_id": int(row["id"]),
                 }
             else:
                 realized += float(row["real_pnl"] or 0.0)
         self.capital_remaining = max(0.0, self.initial_capital_eur - open_cost + realized)
         logger.info("🧱 Memecoin rebuild: cash=%.2f€, open=%d, trades=%d", self.capital_remaining, len(self.portfolio), self.trade_count)
-
-    def _update_history(self, address: str, ts: float, price_usd: float) -> None:
-        hist = self.price_history.setdefault(address, [])
-        hist.append([ts, price_usd])
-        cutoff = ts - self.momentum_lookback_min * 60
-        hist[:] = [p for p in hist if p[0] >= cutoff]
-
-    def _momentum_change_pct(self, address: str) -> float | None:
-        """% Änderung seit dem ältesten Preis-Sample im Momentum-Fenster.
-
-        Verlangt Historie über mindestens die halbe Fensterbreite — kurz genug,
-        damit der Bot früh auf einen frischen Pump aufspringen kann, aber nicht
-        so kurz, dass ein einzelner verrauschter Preis-Tick schon als Momentum
-        durchgeht.
-        """
-        hist = self.price_history.get(address) or []
-        if len(hist) < 2:
-            return None
-        span = hist[-1][0] - hist[0][0]
-        if span < self.momentum_lookback_min * 60 * 0.5:
-            return None
-        oldest_price = hist[0][1]
-        if oldest_price <= 0:
-            return None
-        return (hist[-1][1] - oldest_price) / oldest_price * 100
 
     @staticmethod
     def _display_symbol(address: str, pair: dict | None) -> str:
@@ -388,33 +413,52 @@ class MemecoinMomentumBot:
                 price_usd = float(pair["priceUsd"])
             except (KeyError, TypeError, ValueError):
                 continue
-            self._update_history(address, now, price_usd)
             price_eur = price_usd / rate
             entry = float(pos.get("entry_price") or 0.0)
             if entry <= 0:
                 continue
+            # peak_price fehlt bei Positionen aus einem DB-Rebuild vor diesem
+            # Feature nie (Rebuild setzt ihn auf entry) — der Fallback greift
+            # trotzdem defensiv für Alt-State aus vor dieser Änderung.
+            peak = max(float(pos.get("peak_price") or entry), price_eur)
+            pos["peak_price"] = peak
+            trailing_active = bool(pos.get("trailing_active", False))
             entry_ts = pos.get("entry_ts")
             age = now - float(entry_ts if entry_ts is not None else now)
             change_pct = (price_eur - entry) / entry * 100
             reason = None
-            if change_pct >= self.take_profit_pct:
-                reason = "take_profit"
-            elif change_pct <= -self.stop_loss_pct:
+            # Stop-Loss und Max-Haltedauer sind harte Sicherheitsnetze und gelten
+            # unabhängig vom Trailing-Modus. Erst danach: falls schon im Trailing
+            # (Take-Profit-Schwelle wurde bereits erreicht), Exit am Floor/Trail;
+            # sonst prüfen, ob die Take-Profit-Schwelle jetzt den Trailing-Modus
+            # aktiviert (das ist noch kein Exit in diesem Zyklus).
+            if change_pct <= -self.stop_loss_pct:
                 reason = "stop_loss"
             elif age >= self.max_hold_sec:
                 reason = "time_exit"
+            elif trailing_active:
+                floor_price = entry * (1 + self.trail_floor_pct / 100)
+                trail_price = peak * (1 - self.trailing_stop_pct / 100)
+                stop_price = max(floor_price, trail_price)
+                if price_eur <= stop_price:
+                    reason = "trailing_stop"
+            elif change_pct >= self.take_profit_pct:
+                pos["trailing_active"] = True
+                logger.info("🎯 CHAIN %s: Take-Profit-Schwelle erreicht (%+0.2f%%) – Trailing-Modus aktiv", symbol, change_pct)
             if not reason:
                 continue
             shares = float(pos.get("shares") or 0.0)
             # Kein Orderbuch on-chain: Verkauf verschiebt den Pool-Preis, daher
-            # Slippage/Preis-Impact statt eines echten Bid abziehen.
-            exit_price = price_eur * (1 - self.slippage_pct / 100)
+            # Slippage/Preis-Impact statt eines echten Bid abziehen. Zusätzlich
+            # die mechanische DEX-/Bonding-Curve-Gebühr, unabhängig vom Impact.
+            exit_price = price_eur * (1 - self.slippage_pct / 100) * (1 - self.dex_fee_pct / 100)
             entry_cost = shares * entry
             current_value = shares * exit_price
             real_pnl = current_value - entry_cost
             await resolve_trade(int(pos["trade_id"]), exit_price, round(real_pnl, 6))
             self.capital_remaining += entry_cost + real_pnl
-            self.cooldowns[address] = now + self.cooldown_sec
+            cooldown_len = self.cooldown_after_stop_sec if reason == "stop_loss" else self.cooldown_sec
+            self.cooldowns[address] = now + cooldown_len
             self.portfolio.pop(address, None)
             resolved.append({"symbol": symbol, "address": address, "reason": reason, "pnl": real_pnl})
             logger.info("✅ CHAIN Exit %s: %s @ %.8f€ (Pool %.8f$) | PnL %+0.4f€", symbol, reason, exit_price, price_usd, real_pnl)
@@ -428,6 +472,7 @@ class MemecoinMomentumBot:
             return []
         self.last_scan = now
 
+        curated_set = set(self.curated_addresses)
         universe = list(self.curated_addresses)
         if self.dynamic_enabled:
             try:
@@ -441,6 +486,11 @@ class MemecoinMomentumBot:
 
         pairs = await fetch_pairs_by_address(universe)
         rate = await self._get_eur_usd_rate()
+        # Dynamisch = nicht im kuratierten Kern, unabhängig davon, ob die
+        # Discovery diese Runde den Token erneut gemeldet hat — so zählt eine
+        # offene dynamische Position auch dann fürs Limit, wenn sie gerade
+        # nicht mehr in den Boost-Feeds auftaucht.
+        open_dynamic_count = sum(1 for addr in self.portfolio if addr not in curated_set)
         candidates = []
         for address in universe:
             if address in self.portfolio:
@@ -450,10 +500,16 @@ class MemecoinMomentumBot:
             pair = pairs.get(address)
             if not pair:
                 continue
+            is_dynamic = address not in curated_set
             try:
                 price_usd = float(pair["priceUsd"])
                 liquidity_usd = float((pair.get("liquidity") or {}).get("usd") or 0)
                 volume_h24 = float((pair.get("volume") or {}).get("h24") or 0)
+                volume_h1 = float((pair.get("volume") or {}).get("h1") or 0)
+                change = pair.get("priceChange") or {}
+                change_h1 = float(change["h1"]) if change.get("h1") is not None else None
+                change_m5 = float(change["m5"]) if change.get("m5") is not None else None
+                change_h6 = float(change["h6"]) if change.get("h6") is not None else None
                 h1_txns = (pair.get("txns") or {}).get("h1") or {}
                 buys = float(h1_txns.get("buys") or 0)
                 sells = float(h1_txns.get("sells") or 0)
@@ -461,51 +517,73 @@ class MemecoinMomentumBot:
                 continue
             if price_usd <= 0:
                 continue
-            self._update_history(address, now, price_usd)
             symbol = self._display_symbol(address, pair)
-            if liquidity_usd < self.min_liquidity_usd:
-                logger.info("⏭️ CHAIN %s: Liquidität %.0f$ < %.0f$", symbol, liquidity_usd, self.min_liquidity_usd)
+            min_liq = self.min_liquidity_dynamic_usd if is_dynamic else self.min_liquidity_usd
+            if liquidity_usd < min_liq:
+                logger.info("⏭️ CHAIN %s: Liquidität %.0f$ < %.0f$", symbol, liquidity_usd, min_liq)
                 continue
-            if volume_h24 < self.min_volume_usd:
-                logger.info("⏭️ CHAIN %s: 24h-Volumen %.0f$ < %.0f$", symbol, volume_h24, self.min_volume_usd)
+            min_vol = self.min_volume_dynamic_usd if is_dynamic else self.min_volume_usd
+            if volume_h24 < min_vol:
+                logger.info("⏭️ CHAIN %s: 24h-Volumen %.0f$ < %.0f$", symbol, volume_h24, min_vol)
+                continue
+            if (buys + sells) < self.min_h1_txns:
+                logger.info("⏭️ CHAIN %s: nur %d h1-Txns – zu wenig für belastbaren Kaufdruck (min %d)", symbol, int(buys + sells), self.min_h1_txns)
                 continue
             buy_sell_ratio = buys / max(sells, 1.0)
             if buy_sell_ratio < self.min_buy_sell_ratio:
                 logger.info("⏭️ CHAIN %s: Kaufdruck %.2f < %.2f (h1 buys/sells)", symbol, buy_sell_ratio, self.min_buy_sell_ratio)
                 continue
-            change_pct = self._momentum_change_pct(address)
-            if change_pct is None:
-                logger.info("⏭️ CHAIN %s: noch nicht genug Historie für %.0fmin-Momentum", symbol, self.momentum_lookback_min)
+            if change_h1 is None:
+                logger.info("⏭️ CHAIN %s: kein priceChange.h1 von DexScreener", symbol)
                 continue
-            if not (self.entry_change_pct <= change_pct <= self.entry_max_change_pct):
-                logger.info("⏭️ CHAIN %s: Momentum %+0.2f%% nicht in %.2f..%.2f%%", symbol, change_pct, self.entry_change_pct, self.entry_max_change_pct)
+            if not (self.entry_change_pct <= change_h1 <= self.entry_max_change_pct):
+                logger.info("⏭️ CHAIN %s: Momentum %+0.2f%% (h1) nicht in %.2f..%.2f%%", symbol, change_h1, self.entry_change_pct, self.entry_max_change_pct)
                 continue
-            if address not in self.curated_addresses:
+            if change_m5 is not None and change_m5 <= 0:
+                logger.info("⏭️ CHAIN %s: m5-Momentum %+0.2f%% nicht mehr positiv – Pump könnte auslaufen", symbol, change_m5)
+                continue
+            if change_h6 is not None and change_h6 >= self.max_h6_change_pct:
+                logger.info("⏭️ CHAIN %s: h6-Bewegung %+0.2f%% >= %.0f%% – möglicher Tages-Blowoff", symbol, change_h6, self.max_h6_change_pct)
+                continue
+            if is_dynamic:
                 # Dynamisch entdeckte Tokens: Mindestalter gegen frische Rug-Bait-Launches.
                 age_hours = self._pair_age_hours(pair, now)
                 if age_hours is None or age_hours < self.min_pair_age_hours:
                     logger.info("⏭️ CHAIN %s: Pool-Alter unbekannt/zu jung (dynamisch, Mindestalter %.1fh)", symbol, self.min_pair_age_hours)
                     continue
-            # Score volumen-gewichtet: starke Bewegung mit echtem Handelsvolumen
-            # schlägt starke Bewegung in einem kaum gehandelten Pool.
-            score = change_pct * math.log10(max(volume_h24, 1.0))
-            candidates.append((address, symbol, price_usd, score))
+            # Score volumen-gewichtet auf frischem h1-Volumen: starke Bewegung mit
+            # echtem aktuellem Handelsvolumen schlägt starke Bewegung in einem
+            # gerade kaum gehandelten Pool.
+            score = change_h1 * math.log10(max(volume_h1, 1.0))
+            candidates.append((address, symbol, price_usd, score, is_dynamic))
         candidates.sort(key=lambda t: t[3], reverse=True)
         opened = []
-        for address, symbol, price_usd, _score in candidates:
+        dynamic_opened = 0
+        for address, symbol, price_usd, _score, is_dynamic in candidates:
             if len(self.portfolio) >= self.max_open_positions:
                 break
+            if is_dynamic and (open_dynamic_count + dynamic_opened) >= self.max_dynamic_positions:
+                logger.info("⏭️ CHAIN %s: dynamisches Positionslimit erreicht (%d)", symbol, self.max_dynamic_positions)
+                continue
             amount = min(self.position_eur, self.capital_remaining)
             if amount < 1.0:
                 logger.info("⏭️ CHAIN: Cash %.2f€ reicht nicht", self.capital_remaining)
                 break
-            # Kauf-Slippage: AMM-Preisimpact macht den Fill teurer als der Quote-Preis.
-            price_eur = (price_usd / rate) * (1 + self.slippage_pct / 100)
+            # Kauf-Slippage (AMM-Preisimpact) plus mechanische DEX-Gebühr machen
+            # den Fill teurer als der reine Quote-Preis.
+            price_eur = (price_usd / rate) * (1 + self.slippage_pct / 100) * (1 + self.dex_fee_pct / 100)
             shares = amount / price_eur
             market_question = f"{PREFIX}{symbol}@{address}"
             trade_id = await log_paper_trade(market_question, "buy", shares, price_eur, 0.0, "paper")
             self.capital_remaining -= amount
-            self.portfolio[address] = {"symbol": symbol, "shares": shares, "cost_basis": amount, "entry_price": price_eur, "entry_ts": now, "trade_id": trade_id}
+            self.portfolio[address] = {
+                "symbol": symbol, "shares": shares, "cost_basis": amount,
+                "entry_price": price_eur, "entry_ts": now,
+                "peak_price": price_eur, "trailing_active": False,
+                "trade_id": trade_id,
+            }
+            if is_dynamic:
+                dynamic_opened += 1
             self.trade_count += 1
             opened.append({"symbol": symbol, "address": address, "amount": amount, "price": price_eur})
             logger.info("📝 CHAIN Entry %s: %.2f€ @ %.8f€ (Pool %.8f$)", symbol, amount, price_eur, price_usd)
@@ -531,8 +609,8 @@ class MemecoinMomentumBot:
                 mtm += entry_cost
                 continue
             price_eur = price_usd / rate
-            # Mark-to-Market simuliert den Verkauf, also inkl. Verkaufs-Slippage bewerten.
-            current_value = float(pos["shares"]) * price_eur * (1 - self.slippage_pct / 100)
+            # Mark-to-Market simuliert den Verkauf, also inkl. Verkaufs-Slippage und DEX-Gebühr bewerten.
+            current_value = float(pos["shares"]) * price_eur * (1 - self.slippage_pct / 100) * (1 - self.dex_fee_pct / 100)
             mtm += current_value
             unrealized += current_value - entry_cost
         realized = await paper_db_module.get_realized_pnl_by_prefix(PREFIX)

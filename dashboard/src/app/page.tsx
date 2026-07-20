@@ -4,6 +4,7 @@ import { EquityChart } from "@/components/equity-chart";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { CalendarDays, Trophy } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -12,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { eur, signedEur, signedPct, pnlToneClass, clockTime } from "@/lib/format";
+import { calendarDate, eur, signedEur, signedPct, pnlToneClass, clockTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -24,9 +25,14 @@ export default async function OverviewPage() {
     getRecentTrades(20),
   ]);
 
-  const totalEquity = bots.reduce((s, b) => s + b.equityEur, 0);
-  const totalPnl = bots.reduce((s, b) => s + b.totalPnlEur, 0);
-  const invested = bots.length * 100;
+  const rankedBots = [...bots].sort((a, b) => {
+    if (a.hasData !== b.hasData) return a.hasData ? -1 : 1;
+    return b.equityEur - a.equityEur;
+  });
+  const competingBots = rankedBots.filter((bot) => bot.hasData);
+  const leader = competingBots[0];
+  const runnerUp = competingBots[1];
+  const lead = leader && runnerUp ? leader.equityEur - runnerUp.equityEur : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -40,43 +46,62 @@ export default async function OverviewPage() {
         <AutoRefresh />
       </div>
 
-      {/* Gesamt-Kachel */}
-      <Card className="relative overflow-hidden">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_120%_at_15%_0%,_oklch(0.86_0.155_92_/_9%),_transparent_60%)]"
-        />
-        <CardContent className="relative flex flex-wrap items-center justify-between gap-6 py-5">
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              Gesamtwert aller Bots
+      <Card className="relative overflow-hidden border-primary/35">
+        <CardContent className="grid gap-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)] lg:items-end">
+          {leader ? (
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-primary">
+                <Trophy aria-hidden className="size-4" />
+                <span className="font-mono text-xs font-semibold uppercase tracking-[0.16em]">Aktueller Spitzenreiter</span>
+              </div>
+              <div className="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h2 className="font-heading text-3xl font-bold">{leader.nickname}</h2>
+                <span className="text-sm text-muted-foreground">{leader.name}</span>
+              </div>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{leader.tagline}</p>
+              {leader.startedAt && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                  <CalendarDays aria-hidden className="size-4" />
+                  <span>Start der erfassten Runde: {calendarDate(leader.startedAt)}</span>
+                </div>
+              )}
             </div>
-            <div className="mt-1 font-mono text-4xl font-semibold tabular-nums">
-              {eur(totalEquity)}
+          ) : (
+            <div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Trophy aria-hidden className="size-4" />
+                <span className="font-mono text-xs font-semibold uppercase tracking-[0.16em]">Rangliste bereit</span>
+              </div>
+              <h2 className="mt-3 font-heading text-2xl font-bold">Noch kein Spitzenreiter</h2>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">Sobald ein Bot einen Trade oder Equity-Snapshot liefert, erscheint er hier als Rang 1.</p>
             </div>
-          </div>
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              Gewinn/Verlust gesamt
+          )}
+
+          <div className="grid grid-cols-2 gap-4 border-t pt-5 lg:border-t-0 lg:border-l lg:pl-6 lg:pt-0">
+            <div>
+              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Netto-Equity</div>
+              <div className="mt-1 font-mono text-2xl font-semibold tabular-nums">{leader ? eur(leader.equityEur) : "—"}</div>
+              {leader && <div className={cn("mt-1 font-mono text-sm tabular-nums", pnlToneClass(leader.totalPnlEur))}>{signedEur(leader.totalPnlEur)} ({signedPct(leader.pnlPct)})</div>}
             </div>
-            <div className={cn("mt-1 font-mono text-2xl font-semibold tabular-nums", pnlToneClass(totalPnl))}>
-              {signedEur(totalPnl)}{" "}
-              <span className="text-base">({signedPct((totalPnl / invested) * 100)})</span>
+            <div>
+              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">{runnerUp ? "Vorsprung auf Rang 2" : "Bots im Ranking"}</div>
+              <div className="mt-1 font-mono text-2xl font-semibold tabular-nums">{runnerUp && lead != null ? signedEur(lead) : `${competingBots.length} aktiv`}</div>
+              <div className="mt-1 text-sm text-muted-foreground">{runnerUp ? runnerUp.nickname : "Netto-Equity entscheidet die Platzierung."}</div>
             </div>
-          </div>
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              Eingesetztes Startkapital
-            </div>
-            <div className="mt-1 font-mono text-2xl font-semibold tabular-nums">{eur(invested)}</div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Bot-Karten */}
+      <div className="flex items-baseline justify-between gap-4">
+        <div>
+          <h2 className="font-heading text-lg font-bold">Rangliste</h2>
+          <p className="text-sm text-muted-foreground">Sortiert nach aktueller Netto-Equity.</p>
+        </div>
+        <span className="shrink-0 font-mono text-xs text-muted-foreground">{competingBots.length} mit Daten</span>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {bots.map((bot) => (
-          <BotCard key={bot.key} bot={bot} />
+        {rankedBots.map((bot, index) => (
+          <BotCard key={bot.key} bot={bot} rank={bot.hasData ? index + 1 : undefined} isLeader={bot.key === leader?.key} />
         ))}
       </div>
 
