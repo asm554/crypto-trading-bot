@@ -92,6 +92,7 @@ export type BotSummary = {
   totalPnlEur: number;
   pnlPct: number;
   tradeCount: number;
+  startedAt: number | null;
   lastActivity: number | null;
   hasData: boolean;
 };
@@ -190,6 +191,9 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const cash = latestSnap ? num(latestSnap.cash_eur) : START_CAPITAL;
 
     const lastTradeTs = botTrades.reduce((max, t) => Math.max(max, num(t.timestamp)), 0);
+    const firstTradeTs = botTrades.reduce((min, t) => Math.min(min, num(t.timestamp)), Infinity);
+    const firstSnapshotTs = botSnaps.reduce((min, s) => Math.min(min, num(s.ts)), Infinity);
+    const startedAt = Math.min(firstTradeTs, firstSnapshotTs);
     const lastActivity = Math.max(lastTradeTs, latestSnap ? num(latestSnap.ts) : 0) || null;
 
     const totalPnl = equity - START_CAPITAL;
@@ -206,6 +210,7 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       totalPnlEur: round2(totalPnl),
       pnlPct: round2((totalPnl / START_CAPITAL) * 100),
       tradeCount: botTrades.length,
+      startedAt: Number.isFinite(startedAt) ? startedAt : null,
       lastActivity,
       hasData: botTrades.length > 0 || botSnaps.length > 0,
     };

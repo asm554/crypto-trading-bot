@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Trophy } from "lucide-react";
 import type { BotSummary } from "@/lib/bots";
 import { eur, signedEur, signedPct, pnlToneClass, relTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -15,11 +16,14 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
   );
 }
 
-export function BotCard({ bot }: { bot: BotSummary }) {
+export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank?: number; isLeader?: boolean }) {
   const botColor = `var(--bot-${bot.key})`;
   return (
     <Card
-      className="relative gap-0 overflow-hidden transition-shadow hover:shadow-[0_0_28px_-10px_var(--glow)]"
+      className={cn(
+        "relative gap-0 overflow-hidden transition-shadow hover:shadow-[0_0_28px_-10px_var(--glow)]",
+        isLeader && "border-primary/50 shadow-[0_0_30px_-16px_var(--glow)]"
+      )}
       style={{ "--glow": botColor } as CSSProperties}
     >
       {/* Erkennungsfarbe des Bots als Leuchtkante oben */}
@@ -44,9 +48,17 @@ export function BotCard({ bot }: { bot: BotSummary }) {
             </div>
             <p className="mt-1 max-w-[15rem] text-xs text-muted-foreground">{bot.tagline}</p>
           </div>
-          <Badge variant="secondary" className="shrink-0 font-mono text-xs tabular-nums">
-            {bot.openPositions} offen
-          </Badge>
+          <div className="flex shrink-0 items-center gap-2">
+            {rank != null && (
+              <Badge variant={isLeader ? "default" : "outline"} className="gap-1 font-mono text-xs tabular-nums">
+                {isLeader && <Trophy aria-hidden className="size-3" />}
+                Rang {rank}
+              </Badge>
+            )}
+            <Badge variant="secondary" className="font-mono text-xs tabular-nums">
+              {bot.openPositions} offen
+            </Badge>
+          </div>
         </div>
 
         <div className="mt-4 flex items-end justify-between">
