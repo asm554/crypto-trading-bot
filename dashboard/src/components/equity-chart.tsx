@@ -21,6 +21,7 @@ const config = {
   memecoin: { label: "Der Onchain", color: "var(--bot-memecoin)" },
   surfer: { label: "Der Surfer", color: "var(--bot-surfer)" },
   scout: { label: "Der Spaeher", color: "var(--bot-scout)" },
+  hodl: { label: "Der HODLer", color: "var(--bot-hodl)" },
 } satisfies ChartConfig;
 
 // Bei 6 Linien reicht Farbe allein nicht (Farbfehlsichtigkeit) — jede Linie
@@ -34,6 +35,7 @@ const DASH: Record<keyof typeof config, string | undefined> = {
   memecoin: "10 2 2 2",
   surfer: "12 3",
   scout: "4 2 1 2",
+  hodl: "14 2",
 };
 
 export function EquityChart({ data }: { data: EquityPoint[] }) {

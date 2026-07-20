@@ -1,0 +1,18 @@
+[Unit]
+Description=Polybot HODLer - Paper Trading
+After=network-online.target
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/crypto-trading-bot
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_hodl
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+Environment=HODL_BUDGET=100
+Environment=HODL_CASH_RESERVE_EUR=20
+Environment=HODL_MAX_WEEKLY_EUR=20
+Environment=HODL_BEAR_RATE_PCT=35
+Environment=HODL_PAPER_MODE=true
+[Install]
+WantedBy=multi-user.target

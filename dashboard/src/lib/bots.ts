@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "surfer" | "scout";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "surfer" | "scout" | "hodl";
 
 type BotMeta = {
   key: BotKey;
@@ -76,6 +76,7 @@ export const BOTS: BotMeta[] = [
     prefix: "SCOUT_",
     tagline: "Beobachtet neue Solana-Pools 20 Minuten und handelt nur nach harten Sicherheits-, Aktivitaets- und Route-Checks.",
   },
+  { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", prefix: "HODL_", tagline: "Investiert woechentlich regelbasiert in BTC, ETH und SOL und behaelt einen dauerhaften Kern." },
 ];
 
 export type BotSummary = {
@@ -119,6 +120,7 @@ export type EquityPoint = {
   memecoin: number | null;
   surfer: number | null;
   scout: number | null;
+  hodl: number | null;
 };
 
 type RawTrade = {
@@ -216,7 +218,7 @@ function toTradeRow(r: RawTrade): TradeRow {
   // Auflösung, da zwei dynamisch entdeckte Solana-Tokens denselben Namen
   // tragen können) — im Dashboard reicht das Symbol vor dem "@".
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
-  const pair = meta?.key === "memecoin" || meta?.key === "scout" ? rest.split("@")[0] : rest;
+  const pair = meta?.key === "memecoin" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
   return {
     id: r.id,
     botKey: meta?.key ?? "?",
@@ -250,7 +252,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, surfer: null, scout: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, surfer: null, scout: null, hodl: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -397,6 +399,14 @@ export function getSettings(): SettingsView {
         { label: "Risk-off", value: "12 Std. nach 2 Verlusten; Kontolimit -8 %" },
       ],
     },
+    { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", params: [
+      { label: "Wochenbudget", value: "max. 20 €", hint: "20 € Barreserve bleiben unangetastet." },
+      { label: "Basisverteilung", value: "50 % BTC, 30 % ETH, 20 % SOL" },
+      { label: "Marktphase", value: "EMA50/EMA200 + 90-Tage-Momentum" },
+      { label: "Baerenmarkt", value: "nur 35 % der Rate in BTC" },
+      { label: "Gewinnmitnahme", value: "25 % bei +100 %, 25 % bei +200 %; Kern bleibt" },
+      { label: "Stops", value: "kein normaler Stop-Loss" },
+    ] },
   ];
 
   return { fees, strategies };

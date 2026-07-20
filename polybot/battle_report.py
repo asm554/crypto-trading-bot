@@ -28,6 +28,7 @@ BOTS = {
     "memecoin": {"label": "Der Onchain", "prefix": "CHAIN_", "state": DATA_DIR / "memecoin_state.json"},
     "surfer": {"label": "Der Surfer", "prefix": "SURF_", "state": DATA_DIR / "surfer_state.json"},
     "scout": {"label": "Der Spaeher", "prefix": "SCOUT_", "state": DATA_DIR / "scout_state.json"},
+    "hodl": {"label": "Der HODLer", "prefix": "HODL_", "state": DATA_DIR / "hodl_state.json"},
 }
 
 
@@ -147,6 +148,25 @@ async def equity_for_scout(prefix: str, state_path: Path, bot: str) -> dict:
     return snap
 
 
+async def equity_for_hodl(prefix: str, state_path: Path, bot: str) -> dict:
+    cash = load_cash(state_path)
+    rows = await get_open_trades_by_prefix(prefix)
+    pairs = sorted({row["market_question"].removeprefix(prefix).split("_")[0] for row in rows})
+    ticker = await fetch_ticker_data(pairs) if pairs else {}
+    mtm = unrealized = 0.0
+    for row in rows:
+        pair = row["market_question"].removeprefix(prefix).split("_")[0]; cost = float(row["size"]) * float(row["entry_price"])
+        data = ticker.get(PAIR_MAP.get(pair, pair)) or ticker.get(pair)
+        if data:
+            bid, _ = extract_quote(data, float(data["c"][0])); value = float(row["size"]) * bid * (1 - FEE)
+        else: value = cost
+        mtm += value; unrealized += value - cost
+    realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
+    snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
+    await log_equity_snapshot(bot, **snap)
+    return snap
+
+
 def rows_for_bot(bot: str) -> list[tuple]:
     con = sqlite3.connect(DB_PATH, timeout=30.0)
     try:
@@ -246,6 +266,8 @@ async def build_report() -> str:
             snaps[bot] = await equity_for_memecoin(cfg["prefix"], cfg["state"], bot)
         elif bot == "scout":
             snaps[bot] = await equity_for_scout(cfg["prefix"], cfg["state"], bot)
+        elif bot == "hodl":
+            snaps[bot] = await equity_for_hodl(cfg["prefix"], cfg["state"], bot)
         else:
             snaps[bot] = await equity_for(cfg["prefix"], cfg["state"], bot)
     ranking = sorted(snaps.items(), key=lambda kv: kv[1]["equity_eur"], reverse=True)
@@ -257,7 +279,7 @@ async def build_report() -> str:
     lines.append("")
     lines.append("```")
     lines.append("           Equity   offen  real.PnL  Trades  MaxDD  UW(h)  Serie")
-    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "surfer", "scout"]:
+    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "surfer", "scout", "hodl"]:
         cfg = BOTS[bot]
         s = snaps[bot]
         rows = rows_for_bot(bot)
