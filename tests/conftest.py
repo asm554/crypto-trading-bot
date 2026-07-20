@@ -9,6 +9,11 @@ try:
 except ImportError:
     daytrade_strategy = None
 
+try:
+    import polybot.surfer_strategy as surfer_strategy
+except ImportError:
+    surfer_strategy = None
+
 
 @pytest.fixture(autouse=True)
 def _no_network_rolling_change(monkeypatch):
@@ -28,3 +33,5 @@ def _no_network_rolling_change(monkeypatch):
     monkeypatch.setattr(meanrev_strategy, "rolling_24h_change_pct", _none)
     if daytrade_strategy is not None:
         monkeypatch.setattr(daytrade_strategy, "rolling_change_pct", _none)
+    if surfer_strategy is not None:
+        monkeypatch.setattr(surfer_strategy, "rolling_change_pct", _none)

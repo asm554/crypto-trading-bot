@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "surfer";
 
 type BotMeta = {
   key: BotKey;
@@ -62,6 +62,13 @@ export const BOTS: BotMeta[] = [
     prefix: "CHAIN_",
     tagline: "Springt früh auf stark steigende Solana-Memecoins auf und nimmt den Gewinn bei rund +15 % mit.",
   },
+  {
+    key: "surfer",
+    name: "Trend/Breakout",
+    nickname: "Der Surfer",
+    prefix: "SURF_",
+    tagline: "Reitet bestätigte SOL/EUR-Trends: 4h-Aufwärtstrend, EMA20 über EMA50 und ein 20h-Ausbruch müssen zusammenkommen.",
+  },
 ];
 
 export type BotSummary = {
@@ -103,6 +110,7 @@ export type EquityPoint = {
   arb: number | null;
   daytrade: number | null;
   memecoin: number | null;
+  surfer: number | null;
 };
 
 type RawTrade = {
@@ -234,7 +242,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, surfer: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -345,6 +353,23 @@ export function getSettings(): SettingsView {
         { label: "Max. offene Positionen", value: "3" },
         { label: "Max. Haltedauer", value: "24 Std." },
         { label: "Swap-Slippage", value: "1,5 %", hint: "On-chain gibt es kein Bid/Ask – simuliert den AMM-Preisimpact." },
+      ],
+    },
+    {
+      key: "surfer",
+      name: "Trend/Breakout",
+      nickname: "Der Surfer",
+      params: [
+        { label: "Handelspaar", value: "SOL/EUR", hint: "Einziges gehandeltes Paar, maximal 1 offene Position." },
+        { label: "Einstiegsbedingungen", value: "4h-Aufwärtstrend + EMA20 > EMA50 + 20h-Ausbruch + erhöhtes Volumen", hint: "Alle vier müssen gleichzeitig erfüllt sein – bewusst selten." },
+        { label: "Initialer Stop", value: "ATR-basiert (2× ATR14)", hint: "Passt sich der aktuellen Volatilität an." },
+        { label: "Gewinnsicherung", value: "Trailing-Stop 3 %", hint: "Kein fester Take-Profit, Gewinne laufen mit dem Trend." },
+        { label: "Trend-Exit", value: "EMA20 kreuzt unter EMA50" },
+        { label: "Max. Haltedauer", value: "7 Tage" },
+        { label: "Risiko pro Trade", value: "max. 0,50 €", hint: "Bestimmt die Positionsgröße über den ATR-Stop-Abstand." },
+        { label: "Max. Positionsgröße", value: "25 €" },
+        { label: "Verlustpause", value: "24 Std. nach 3 Verlusten in Folge" },
+        { label: "Kontoverlust-Sperre", value: "−10 %", hint: "Ab dieser Verlustgrenze keine neuen Einstiege, offene Positionen laufen weiter." },
       ],
     },
   ];
