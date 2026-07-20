@@ -33,5 +33,5 @@ def _no_network_rolling_change(monkeypatch):
     monkeypatch.setattr(meanrev_strategy, "rolling_24h_change_pct", _none)
     if daytrade_strategy is not None:
         monkeypatch.setattr(daytrade_strategy, "rolling_change_pct", _none)
-    if surfer_strategy is not None:
+    if surfer_strategy is not None and hasattr(surfer_strategy, "rolling_change_pct"):
         monkeypatch.setattr(surfer_strategy, "rolling_change_pct", _none)

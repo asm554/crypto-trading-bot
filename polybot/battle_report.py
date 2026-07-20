@@ -74,7 +74,7 @@ async def equity_for(prefix: str, state_path: Path, bot: str) -> dict:
         bid, _ask = extract_quote(data, last)
         current_value = shares * bid
         sell_fee = current_value * FEE
-        mtm += current_value - sell_fee
+        mtm += current_value - entry_cost * FEE - sell_fee
         unrealized += current_value - entry_cost - entry_cost * FEE - sell_fee
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
     snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}

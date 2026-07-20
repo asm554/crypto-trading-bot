@@ -20,7 +20,7 @@ import aiohttp
 
 from polybot import config
 from polybot import paper_db as paper_db_module
-from polybot.dca_strategy import KRAKEN_PUBLIC, PAIR_MAP, extract_quote, fetch_ticker_data, rolling_change_pct
+from polybot.dca_strategy import KRAKEN_PUBLIC, PAIR_MAP, extract_quote, fetch_ticker_data
 from polybot.paper_db import log_equity_snapshot, log_paper_trade, resolve_trade
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,17 @@ def atr_wilder(highs: list[float], lows: list[float], closes: list[float], perio
     for tr in trs[period:]:
         avg = (avg * (period - 1) + tr) / period
     return avg
+
+
+def closed_ohlc_rows(rows: list[tuple], interval_min: int, now: float | None = None) -> list[tuple]:
+    """Gibt nur abgeschlossene Kraken-Kerzen zurück.
+
+    Kraken hängt die laufende, jederzeit veränderliche Kerze an die Antwort an.
+    Alle Strategie-Signale müssen auf finalen Stundenwerten beruhen.
+    """
+    now = time.time() if now is None else now
+    interval_sec = interval_min * 60
+    return [row for row in rows if float(row[0]) + interval_sec <= now]
 
 
 class SurferBot:
@@ -210,8 +221,10 @@ class SurferBot:
                     "cost_basis": amount,
                     "entry_price": price,
                     "entry_ts": float(row["timestamp"] or time.time()),
-                    "peak_price": price,
-                    "stop_price": price * (1 - 2 * 0.02),  # grobe Näherung bis zum ersten manage_positions()-Lauf
+                    # Peak und ATR-Stop stehen nur im State, nicht im Ledger.
+                    # Ohne diese Werte wird die Position kontrolliert beendet,
+                    # statt mit einem erfundenen Stop weiterzulaufen.
+                    "needs_recovery_exit": True,
                     "trade_id": int(row["id"]),
                 }
             else:
@@ -244,7 +257,7 @@ class SurferBot:
             return None
 
     async def _ema_exit_signal(self) -> bool:
-        rows = await fetch_ohlc(self.pair, OHLC_INTERVAL_MIN)
+        rows = closed_ohlc_rows(await fetch_ohlc(self.pair, OHLC_INTERVAL_MIN), OHLC_INTERVAL_MIN)
         if len(rows) < self.ema_slow_period:
             return False
         closes = [r[4] for r in rows]
@@ -265,7 +278,9 @@ class SurferBot:
             logger.info("⏭️ SURF %s: kein Ticker – Position unverändert", self.pair)
             return []
         last = float(snap["last_price"])
+        bid = float(snap.get("bid") or last)
         entry = float(pos.get("entry_price") or 0.0)
+        reason = "state_recovery_exit" if pos.get("needs_recovery_exit") else None
         peak = max(float(pos.get("peak_price") or entry), last)
         pos["peak_price"] = peak
         atr_stop_price = float(pos.get("stop_price") or 0.0)
@@ -275,19 +290,17 @@ class SurferBot:
         # "Der Onchain" (memecoin_strategy.py).
         effective_stop = max(atr_stop_price, trailing_stop_price)
         age = now - float(pos.get("entry_ts") or now)
-        reason = None
-        if last <= effective_stop:
+        if not reason and bid <= effective_stop:
             reason = "trailing_stop" if trailing_stop_price >= atr_stop_price else "atr_stop"
-        elif await self._ema_exit_signal():
+        elif not reason and await self._ema_exit_signal():
             reason = "ema_exit"
-        elif age >= self.max_hold_sec:
+        elif not reason and age >= self.max_hold_sec:
             reason = "time_exit"
         if not reason:
             return []
         trade_id = int(pos.get("trade_id") or 0)
         shares = float(pos.get("shares") or 0.0)
-        # Trigger oben entscheidet auf Last, verkauft wird zum Bid.
-        exit_price = float(snap.get("bid") or last)
+        exit_price = bid
         entry_cost = shares * entry
         current_value = shares * exit_price
         fee = config.CRYPTO_TAKER_FEE_RATE
@@ -310,7 +323,6 @@ class SurferBot:
         now = time.time()
         if now - self.last_entry_scan < self.interval_sec:
             return []
-        self.last_entry_scan = now
         if self.pair in self.portfolio:
             logger.info("⏭️ SURF: bereits offen")
             self._save_state()
@@ -333,22 +345,31 @@ class SurferBot:
             self._save_state()
             return []
 
-        ch_trend = await rolling_change_pct(self.pair, lookback_bars=self.trend_lookback_hours, interval_min=OHLC_INTERVAL_MIN)
-        if ch_trend is None or ch_trend <= self.min_trend_pct:
-            logger.info("⏭️ SURF %s: kein bestätigter %dh-Aufwärtstrend (%s)", self.pair, self.trend_lookback_hours, ch_trend)
-            self._save_state()
-            return []
-
-        rows = await fetch_ohlc(self.pair, OHLC_INTERVAL_MIN)
-        min_bars = max(self.ema_slow_period, self.breakout_lookback_hours + 1, self.atr_period + 1)
+        rows = closed_ohlc_rows(await fetch_ohlc(self.pair, OHLC_INTERVAL_MIN), OHLC_INTERVAL_MIN, now)
+        min_bars = max(
+            self.ema_slow_period,
+            self.breakout_lookback_hours + 1,
+            self.atr_period + 1,
+            self.trend_lookback_hours + 1,
+        )
         if len(rows) < min_bars:
-            logger.info("⏭️ SURF %s: zu wenig OHLC-Daten (%d < %d)", self.pair, len(rows), min_bars)
-            self._save_state()
+            logger.info("⏭️ SURF %s: zu wenig abgeschlossene OHLC-Daten (%d < %d)", self.pair, len(rows), min_bars)
             return []
+        # Ein vollständiger Markt-Snapshot wurde verarbeitet. Netz-/OHLC-Fehler
+        # davor bleiben absichtlich unthrottled und werden nach 60s erneut
+        # versucht; reguläre No-Signal-Scans dagegen nur stündlich.
+        self.last_entry_scan = now
         closes = [r[4] for r in rows]
         highs = [r[2] for r in rows]
         lows = [r[3] for r in rows]
         volumes = [r[6] for r in rows]
+
+        trend_ref = closes[-1 - self.trend_lookback_hours]
+        ch_trend = ((closes[-1] - trend_ref) / trend_ref * 100) if trend_ref > 0 else None
+        if ch_trend is None or ch_trend <= self.min_trend_pct:
+            logger.info("⏭️ SURF %s: kein bestätigter %dh-Aufwärtstrend (%s)", self.pair, self.trend_lookback_hours, ch_trend)
+            self._save_state()
+            return []
 
         ema_fast = ema_series(closes, self.ema_fast_period)
         ema_slow = ema_series(closes, self.ema_slow_period)
@@ -359,9 +380,9 @@ class SurferBot:
 
         breakout_window = highs[-(self.breakout_lookback_hours + 1):-1]
         breakout_level = max(breakout_window) if breakout_window else float("inf")
-        last = float(snap["last_price"])
-        if last <= breakout_level:
-            logger.info("⏭️ SURF %s: kein %dh-Ausbruch (last %.6f <= %.6f)", self.pair, self.breakout_lookback_hours, last, breakout_level)
+        signal_close = closes[-1]
+        if signal_close <= breakout_level:
+            logger.info("⏭️ SURF %s: kein bestätigter %dh-Ausbruch (close %.6f <= %.6f)", self.pair, self.breakout_lookback_hours, signal_close, breakout_level)
             self._save_state()
             return []
 
@@ -378,7 +399,8 @@ class SurferBot:
             self._save_state()
             return []
 
-        # Einstiegsfilter oben entscheiden auf Last, gekauft wird zum Ask.
+        # Signal aus der abgeschlossenen Kerze, Fill zum aktuellen Ask.
+        last = float(snap["last_price"])
         price = float(snap.get("ask") or last)
         stop_price = price - atr * self.atr_stop_multiplier
         stop_distance = price - stop_price
@@ -411,14 +433,14 @@ class SurferBot:
             "cost_basis": position_value,
             "entry_price": price,
             "entry_ts": now,
-            "peak_price": last,
+            "peak_price": max(last, price),
             "stop_price": stop_price,
             "trade_id": trade_id,
         }
         self.trade_count += 1
         logger.info(
-            "📝 SURF Entry %s: %.2f€ @ %.6f€ (Last %.6f€) | %dh %+0.2f%% | ATR-Stop %.6f€",
-            self.pair, position_value, price, last, self.trend_lookback_hours, ch_trend, stop_price,
+            "📝 SURF Entry %s: %.2f€ @ %.6f€ (Signal-Close %.6f€) | %dh %+0.2f%% | ATR-Stop %.6f€",
+            self.pair, position_value, price, signal_close, self.trend_lookback_hours, ch_trend, stop_price,
         )
         self._save_state()
         return [{"pair": self.pair, "amount": position_value, "price": price, "stop_price": stop_price}]
@@ -436,7 +458,7 @@ class SurferBot:
                 current_value = float(pos["shares"]) * float(snap.get("bid") or snap["last_price"])
                 sell_fee = current_value * fee
                 entry_cost = float(pos["cost_basis"])
-                mtm += current_value - sell_fee
+                mtm += current_value - entry_cost * fee - sell_fee
                 unrealized += current_value - entry_cost - entry_cost * fee - sell_fee
         realized = await paper_db_module.get_realized_pnl_by_prefix(PREFIX)
         return {
