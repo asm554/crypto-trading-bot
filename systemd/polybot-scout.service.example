@@ -1,0 +1,37 @@
+[Unit]
+Description=Polybot Scout (Der Spaeher) - Paper Trading
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/crypto-trading-bot
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_scout
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+Environment=SCOUT_BUDGET=100
+Environment=SCOUT_INTERVAL_SEC=30
+Environment=SCOUT_POSITION_EUR=5
+Environment=SCOUT_MAX_OPEN_POSITIONS=2
+Environment=SCOUT_CASH_RESERVE_EUR=85
+Environment=SCOUT_MATURITY_MIN=20
+Environment=SCOUT_MAX_POOL_AGE_H=12
+Environment=SCOUT_MIN_SCORE=60
+Environment=SCOUT_MAX_PRICE_IMPACT_PCT=1.5
+Environment=SCOUT_MAX_ROUND_TRIP_COST_PCT=8
+Environment=SCOUT_PAPER_SLIPPAGE_PCT=0.5
+Environment=SCOUT_STOP_LOSS_PCT=12
+Environment=SCOUT_TAKE_PROFIT_PCT=25
+Environment=SCOUT_TRAIL_ACTIVATION_PCT=10
+Environment=SCOUT_TRAILING_STOP_PCT=8
+Environment=SCOUT_MAX_HOLD_H=6
+Environment=SCOUT_LOSS_STREAK_LIMIT=2
+Environment=SCOUT_RISK_OFF_H=12
+Environment=SCOUT_ACCOUNT_LOSS_LIMIT_PCT=8
+Environment=SCOUT_SNAPSHOT_MIN=15
+Environment=SCOUT_PAPER_MODE=true
+
+[Install]
+WantedBy=multi-user.target

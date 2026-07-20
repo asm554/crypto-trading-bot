@@ -15,7 +15,8 @@ Seven paper-trading bots run in parallel and are compared against each other ("b
 - `polybot.main_daytrade` — Short-window intraday momentum (4h lookback, ~6h max hold) / "Der Zappler"
 - `polybot.main_memecoin` — On-chain Solana memecoin breakout (DexScreener, no wallet/key) / "Der Onchain"
 - `polybot.main_surfer` — SOL/EUR trend/breakout: 4h uptrend + EMA20>EMA50 + 20h breakout + volume, ATR-sized, single position / "Der Surfer"
-- `polybot.battle_report` — Telegram/console equity comparison report across all seven
+- `polybot.main_scout` — Jupiter-discovered new Solana pools, scored after observation, paper-only / "Der Spaeher"
+- `polybot.battle_report` — Telegram/console equity comparison report across all eight
 
 A Next.js/shadcn dashboard under `dashboard/` reads the same data from Supabase (see Architecture below) and is the primary way the group actually watches the battle; `dashboard/` has its own `AGENTS.md` warning that the installed Next.js version has breaking changes vs. training data — read `node_modules/next/dist/docs/` there before touching framework-level code.
 
@@ -48,6 +49,7 @@ python -m polybot.main_arb
 python -m polybot.main_daytrade
 python -m polybot.main_memecoin
 python -m polybot.main_surfer
+python -m polybot.main_scout
 python -m polybot.battle_report
 python -m polybot.main_cloud_sync   # mirrors the local DB to Supabase for the dashboard
 ```
@@ -66,7 +68,7 @@ npx tsc --noEmit
 ## Verify
 
 ```bash
-python -m py_compile polybot/dca_strategy.py polybot/main_dca.py polybot/momentum_strategy.py polybot/main_momentum.py polybot/meanrev_strategy.py polybot/main_meanrev.py polybot/arb_strategy.py polybot/main_arb.py polybot/daytrade_strategy.py polybot/main_daytrade.py polybot/memecoin_strategy.py polybot/main_memecoin.py polybot/surfer_strategy.py polybot/main_surfer.py polybot/battle_report.py
+python -m py_compile polybot/dca_strategy.py polybot/main_dca.py polybot/momentum_strategy.py polybot/main_momentum.py polybot/meanrev_strategy.py polybot/main_meanrev.py polybot/arb_strategy.py polybot/main_arb.py polybot/daytrade_strategy.py polybot/main_daytrade.py polybot/memecoin_strategy.py polybot/main_memecoin.py polybot/surfer_strategy.py polybot/main_surfer.py polybot/scout_strategy.py polybot/main_scout.py polybot/battle_report.py
 python -m pytest -q
 ```
 

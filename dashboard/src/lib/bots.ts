@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "surfer";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "surfer" | "scout";
 
 type BotMeta = {
   key: BotKey;
@@ -69,6 +69,13 @@ export const BOTS: BotMeta[] = [
     prefix: "SURF_",
     tagline: "Reitet bestätigte SOL/EUR-Trends: 4h-Aufwärtstrend, EMA20 über EMA50 und ein 20h-Ausbruch müssen zusammenkommen.",
   },
+  {
+    key: "scout",
+    name: "New-Pool Scout",
+    nickname: "Der Spaeher",
+    prefix: "SCOUT_",
+    tagline: "Beobachtet neue Solana-Pools 20 Minuten und handelt nur nach harten Sicherheits-, Aktivitaets- und Route-Checks.",
+  },
 ];
 
 export type BotSummary = {
@@ -111,6 +118,7 @@ export type EquityPoint = {
   daytrade: number | null;
   memecoin: number | null;
   surfer: number | null;
+  scout: number | null;
 };
 
 type RawTrade = {
@@ -208,7 +216,7 @@ function toTradeRow(r: RawTrade): TradeRow {
   // Auflösung, da zwei dynamisch entdeckte Solana-Tokens denselben Namen
   // tragen können) — im Dashboard reicht das Symbol vor dem "@".
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
-  const pair = meta?.key === "memecoin" ? rest.split("@")[0] : rest;
+  const pair = meta?.key === "memecoin" || meta?.key === "scout" ? rest.split("@")[0] : rest;
   return {
     id: r.id,
     botKey: meta?.key ?? "?",
@@ -242,7 +250,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, surfer: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, surfer: null, scout: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -370,6 +378,23 @@ export function getSettings(): SettingsView {
         { label: "Max. Positionsgröße", value: "25 €" },
         { label: "Verlustpause", value: "24 Std. nach 3 Verlusten in Folge" },
         { label: "Kontoverlust-Sperre", value: "−10 %", hint: "Ab dieser Verlustgrenze keine neuen Einstiege, offene Positionen laufen weiter." },
+      ],
+    },
+    {
+      key: "scout",
+      name: "New-Pool Scout",
+      nickname: "Der Spaeher",
+      params: [
+        { label: "Pruef-Intervall", value: "alle 30 Sek." },
+        { label: "Reifezeit", value: "20 Min.", hint: "Neue Pools werden vor jeder Bewertung beobachtet." },
+        { label: "Sicherheits-Gates", value: "Mint + Freeze deaktiviert, Audit/Shield sauber" },
+        { label: "Markt-Gates", value: "ab 40.000 $ Liquiditaet, 150 Holdern und Score 60/100" },
+        { label: "Route-Gate", value: "max. 1,5 % Preiswirkung, 8 % Rundreisekosten" },
+        { label: "Positionsgroesse", value: "5 €", hint: "Maximal zwei Positionen; 85 € bleiben Barreserve." },
+        { label: "Verlust-Bremse", value: "-12 %" },
+        { label: "Gewinnmitnahme", value: "+25 %; Trailing ab +10 %" },
+        { label: "Max. Haltedauer", value: "6 Std." },
+        { label: "Risk-off", value: "12 Std. nach 2 Verlusten; Kontolimit -8 %" },
       ],
     },
   ];
