@@ -4,7 +4,8 @@ import { EquityChart } from "@/components/equity-chart";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CalendarDays, Trophy } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { Bot, CalendarDays, Download, ShieldCheck, Trophy } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -171,6 +172,45 @@ export default async function OverviewPage() {
           )}
         </CardContent>
       </Card>
+
+      <section className="relative overflow-hidden border-y border-primary/30 bg-card px-5 py-8 sm:px-8 sm:py-10">
+        <div
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-1"
+          style={{ background: "var(--primary)" }}
+        />
+        <div className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-primary">
+              <Bot aria-hidden className="size-5" />
+              <span className="font-mono text-xs font-bold uppercase tracking-[0.16em]">Offener Startplatz</span>
+            </div>
+            <h2 className="mt-3 font-heading text-2xl font-bold sm:text-3xl">Entwickle deinen eigenen Bot</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+              Stack-Sheet ausfüllen und hier wieder hochladen. Der Bot-Vorschlag wird sicher geprüft und anschließend in die Bot-Battle integriert.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck aria-hidden className="size-4 text-emerald-500" />
+                Nur Paper-Trading
+              </span>
+              <span>100 € Startkapital</span>
+              <span>30 Trades vor Optimierung</span>
+            </div>
+          </div>
+          <a
+            href="/bot-stack-sheet.md"
+            download="bot-stack-sheet.md"
+            className={cn(
+              buttonVariants({ size: "lg" }),
+              "h-auto min-h-11 w-full min-w-0 max-w-full shrink gap-2 whitespace-normal px-4 py-2 text-center leading-5 font-bold sm:w-auto sm:shrink-0 sm:whitespace-nowrap"
+            )}
+          >
+            <Download aria-hidden className="size-4" />
+            Erforderliches Stack-Sheet herunterladen
+          </a>
+        </div>
+      </section>
     </div>
   );
 }
