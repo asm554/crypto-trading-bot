@@ -1,8 +1,7 @@
 import { getSettings } from "@/lib/bots";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Info } from "lucide-react";
+import { Activity, Info, Target } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +45,11 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Strategien */}
+      <div>
+        <h2 className="font-heading text-lg font-bold">Bots im Überblick</h2>
+        <p className="text-sm text-muted-foreground">Einfach erklärt, mit den aktuell wichtigsten Handelsregeln.</p>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-3">
         {strategies.map((s) => (
           <Card key={s.key} className="relative overflow-hidden">
@@ -57,7 +60,7 @@ export default function SettingsPage() {
                 background: `linear-gradient(to right, var(--bot-${s.key}), transparent 85%)`,
               }}
             />
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-4">
               <div className="flex items-center gap-2">
                 <span
                   aria-hidden
@@ -70,9 +73,26 @@ export default function SettingsPage() {
                 </Badge>
               </div>
             </CardHeader>
-            <Separator />
-            <CardContent className="flex flex-col gap-3 pt-4">
-              {s.params.map((p) => (
+            <CardContent className="flex flex-col gap-5">
+              <div>
+                <div className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground">
+                  <Target aria-hidden className="size-3.5" />
+                  Was macht er?
+                </div>
+                <p className="mt-1.5 text-sm leading-6">{s.purpose}</p>
+              </div>
+
+              <div className="border-l-2 border-primary/55 bg-secondary/35 px-3 py-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-primary">
+                  <Activity aria-hidden className="size-3.5" />
+                  So handelt er gerade
+                </div>
+                <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{s.currentBehavior}</p>
+              </div>
+
+              <div className="grid gap-2 border-t pt-4">
+                <div className="text-xs font-bold text-muted-foreground">Wichtigste Regeln</div>
+                {s.params.slice(0, 3).map((p) => (
                 <div key={p.label} className="flex flex-col gap-0.5">
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="text-sm text-muted-foreground">{p.label}</span>
@@ -80,9 +100,9 @@ export default function SettingsPage() {
                       {p.value}
                     </span>
                   </div>
-                  {p.hint && <span className="text-xs text-muted-foreground/70">{p.hint}</span>}
                 </div>
               ))}
+              </div>
             </CardContent>
           </Card>
         ))}

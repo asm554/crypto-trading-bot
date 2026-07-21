@@ -301,7 +301,14 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
 }
 
 export type StrategyParam = { label: string; value: string; hint?: string };
-export type StrategyGroup = { key: BotKey; name: string; nickname: string; params: StrategyParam[] };
+export type StrategyGroup = {
+  key: BotKey;
+  name: string;
+  nickname: string;
+  purpose: string;
+  currentBehavior: string;
+  params: StrategyParam[];
+};
 export type SettingsView = {
   fees: StrategyParam[];
   strategies: StrategyGroup[];
@@ -320,6 +327,8 @@ export function getSettings(): SettingsView {
       key: "dca",
       name: "DCA",
       nickname: "Der Brave",
+      purpose: "Kauft regelmäßig kleine Beträge in gefallene Coins und wartet geduldig auf eine Erholung.",
+      currentBehavior: "Kauft höchstens zwei Positionen, hält 10 € zurück und verkauft ab rund 3 % Gewinn oder spätestens nach 14 Tagen.",
       params: [
         { label: "Kauf-Intervall", value: "alle 4 Std." },
         { label: "Kapital verteilt auf", value: "5 Runden" },
@@ -334,6 +343,8 @@ export function getSettings(): SettingsView {
       key: "momentum",
       name: "Momentum",
       nickname: "Der Zocker",
+      purpose: "Sucht Coins mit starkem Tagestrend und versucht, auf eine laufende Aufwärtsbewegung aufzuspringen.",
+      currentBehavior: "Steigt bei 3–25 % Tagesanstieg mit 12 € ein, hält maximal vier Positionen und beendet Trades spätestens nach 48 Stunden.",
       params: [
         { label: "Prüf-Intervall", value: "jede Std." },
         { label: "Einstieg bei Anstieg", value: "+3 % bis +25 % (24 Std.)" },
@@ -348,6 +359,8 @@ export function getSettings(): SettingsView {
       key: "meanrev",
       name: "Mean-Reversion",
       nickname: "Der Contrarian",
+      purpose: "Kauft stark gefallene Coins, wenn sie überverkauft wirken und eine Gegenbewegung beginnen könnte.",
+      currentBehavior: "Wartet auf mindestens 8 % Tagesverlust und RSI unter 30; pro Position setzt er 15 € mit 4 % Ziel und 5 % Stop ein.",
       params: [
         { label: "Prüf-Intervall", value: "jede Std." },
         { label: "Einstieg bei Absturz", value: "ab −8 % (24 Std.)" },
@@ -362,6 +375,8 @@ export function getSettings(): SettingsView {
       key: "arb",
       name: "Triangular-Arb",
       nickname: "Der Pedant",
+      purpose: "Prüft, ob ein schneller Währungskreislauf über BTC und ETH nach allen Gebühren einen kleinen Gewinn ergibt.",
+      currentBehavior: "Scannt alle 45 Sekunden beide Richtungen und handelt mit 25 € nur, wenn mindestens 0,05 € Nettogewinn übrig bleiben.",
       params: [
         { label: "Prüf-Intervall", value: "alle 45 Sek." },
         { label: "Dreieck", value: "EUR → BTC → ETH → EUR", hint: "Beide Richtungen werden geprüft." },
@@ -374,6 +389,8 @@ export function getSettings(): SettingsView {
       key: "daytrade",
       name: "Daytrade",
       nickname: "Der Zappler",
+      purpose: "Handelt kurzfristige Kursstärke und schließt Positionen noch am selben Handelstag wieder.",
+      currentBehavior: "Prüft alle fünf Minuten den 4-Stunden-Trend, setzt 10 € pro Trade und hält höchstens sechs Stunden.",
       params: [
         { label: "Prüf-Intervall", value: "alle 5 Min." },
         { label: "Einstieg bei Anstieg", value: "+3 % bis +25 % (4 Std.)", hint: "Kurzfristiges Momentum statt 24h-Trend." },
@@ -388,6 +405,8 @@ export function getSettings(): SettingsView {
       key: "memecoin",
       name: "Onchain-Memecoin",
       nickname: "Der Onchain",
+      purpose: "Sucht Solana-Memecoins mit frischem Momentum, ausreichender Liquidität und echtem Kaufdruck.",
+      currentBehavior: "Setzt 8 € pro Position, filtert extreme Kurzzeit-Pumps und sichert Trades mit Gewinnziel, Trailing-Stop und Verlustgrenze ab.",
       params: [
         { label: "Prüf-Intervall", value: "alle 5 Min." },
         { label: "Coin-Universum", value: "12 kuratierte + bis zu 15 dynamische", hint: "Kern: BONK, WIF, POPCAT, PNUT, GOAT, MEW, FARTCOIN, GIGA, MOODENG, FWOG, PENGU, SLERF. Dazu aktuell beworbene Solana-Token aus DexScreeners Boost-/Profile-Feeds, scharf gefiltert." },
@@ -408,6 +427,8 @@ export function getSettings(): SettingsView {
       key: "pumpfun",
       name: "Pump.fun",
       nickname: "Der PumpFun",
+      purpose: "Beobachtet neue Pump.fun-Token während der Bonding Curve und nach ihrer Migration.",
+      currentBehavior: "Handelt rein simuliert mit 5 €, verlangt Momentum und Kaufdruck und hält frühe Positionen maximal 45 Minuten.",
       params: [
         { label: "Datenquelle", value: "PumpPortal WebSocket", hint: "Neue Token und Trades; keine Wallet und keine Orders." },
         { label: "Modus", value: "100 % Paper-Trading" },
@@ -427,6 +448,8 @@ export function getSettings(): SettingsView {
       key: "surfer",
       name: "Trend/Breakout",
       nickname: "Der Surfer",
+      purpose: "Versucht einen bestätigten SOL/EUR-Aufwärtstrend möglichst lange mitzunehmen.",
+      currentBehavior: "Steigt nur bei Trend, EMA-Bestätigung, Ausbruch und erhöhtem Volumen ein; der Stop passt sich der Volatilität an.",
       params: [
         { label: "Handelspaar", value: "SOL/EUR", hint: "Einziges gehandeltes Paar, maximal 1 offene Position." },
         { label: "Einstiegsbedingungen", value: "4h-Aufwärtstrend + EMA20 > EMA50 + 20h-Ausbruch + erhöhtes Volumen", hint: "Alle vier müssen gleichzeitig erfüllt sein – bewusst selten." },
@@ -444,6 +467,8 @@ export function getSettings(): SettingsView {
       key: "scout",
       name: "New-Pool Scout",
       nickname: "Der Spaeher",
+      purpose: "Beobachtet neue Solana-Pools und handelt nur Kandidaten, die Sicherheits- und Liquiditätsprüfungen bestehen.",
+      currentBehavior: "Lässt Pools erst 20 Minuten reifen, setzt 5 € pro Trade und hält mindestens 85 € als Barreserve zurück.",
       params: [
         { label: "Pruef-Intervall", value: "alle 30 Sek." },
         { label: "Reifezeit", value: "20 Min.", hint: "Neue Pools werden vor jeder Bewertung beobachtet." },
@@ -457,7 +482,10 @@ export function getSettings(): SettingsView {
         { label: "Risk-off", value: "12 Std. nach 2 Verlusten; Kontolimit -8 %" },
       ],
     },
-    { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", params: [
+    { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer",
+      purpose: "Baut langfristig eine feste Mischung aus Bitcoin, Ethereum und Solana auf.",
+      currentBehavior: "Investiert wöchentlich bis zu 20 €, reduziert Käufe im Bärenmarkt und behält immer einen langfristigen Kern.",
+      params: [
       { label: "Wochenbudget", value: "max. 20 €", hint: "20 € Barreserve bleiben unangetastet." },
       { label: "Basisverteilung", value: "50 % BTC, 30 % ETH, 20 % SOL" },
       { label: "Marktphase", value: "EMA50/EMA200 + 90-Tage-Momentum" },
