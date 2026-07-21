@@ -4,7 +4,7 @@ import pytest
 
 import polybot.meanrev_strategy as meanrev_strategy
 import polybot.paper_db as paper_db
-from polybot.meanrev_strategy import MeanRevBot, rsi_wilder
+from polybot.meanrev_strategy import MeanRevBot, bollinger_lower, rsi_wilder, stochastic_k
 
 
 def _ticker(open_price="100", last="90", vol24="2000", vwap24="96", bid=None, ask=None):
@@ -70,6 +70,16 @@ def test_rsi_wilder_mixed_series_in_open_interval():
     assert 0.0 < rsi < 100.0
 
 
+def test_bollinger_lower_uses_recent_window():
+    closes = [100.0] * 19 + [90.0]
+    assert bollinger_lower(closes, period=20, stddev_multiplier=2.0) == pytest.approx(95.141101, rel=1e-6)
+
+
+def test_stochastic_k_detects_oversold_close():
+    rows = [(float(i), 100.0, 110.0, 90.0, 92.0, 100.0, 1.0) for i in range(14)]
+    assert stochastic_k(rows, period=14) == pytest.approx(10.0)
+
+
 # ---------------------------------------------------------------------------
 # _ticker_snapshot
 # ---------------------------------------------------------------------------
@@ -99,16 +109,15 @@ def test_scan_entries_opens_position_on_oversold_stabilized_candidate(monkeypatc
     monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
 
     async def fake_fetch_ticker_data(_pairs):
-        # SOLEUR down ~-13.6% (<= -entry_drop_pct 8), last price 95
-        return {"SOLEUR": _ticker(open_price="110", last="95", vol24="2000", vwap24="96")}
+        return {"SOLEUR": _ticker(open_price="110", last="83", vol24="2000", vwap24="96")}
 
     def build_ohlc():
-        # 20 bars, strictly falling closes -> RSI 0 (< rsi_max).
-        # Recent 6-bar low is ~91 so last=95 clears low6 * (1 + confirm_pct/100).
+        # Kapitulationskerze plus kleine Erholung: RSI/Stochastic sind oversold,
+        # der Close liegt unter dem Bollinger-Unterband und Last stabilisiert sich.
         rows = []
-        for i in range(20):
-            close = 120.0 - i
-            low = close - 10.0
+        closes = [100.0] * 18 + [80.0, 82.0]
+        for i, close in enumerate(closes):
+            low = close - 2.0
             high = close + 2.0
             open_ = close + 1.0
             vwap = close
@@ -145,6 +154,8 @@ def test_scan_entries_opens_position_on_oversold_stabilized_candidate(monkeypatc
         assert opened[0]["pair"] == "SOLEUR"
         assert opened[0]["amount"] == pytest.approx(15.0)
         assert opened[0]["rsi"] < bot.rsi_max
+        assert opened[0]["bollinger_lower"] > 82.0
+        assert opened[0]["stochastic_k"] < bot.stochastic_max
         assert "SOLEUR" in bot.portfolio
         assert bot.capital_remaining == pytest.approx(85.0)
 
@@ -185,7 +196,7 @@ def test_scan_entries_fills_at_ask_not_last(monkeypatch, tmp_path):
     async def scenario():
         await paper_db.init_db()
         bot = _bind_bot_to_tmp_storage(
-            MeanRevBot(initial_capital_eur=100.0, position_eur=15.0, paper_mode=True),
+            MeanRevBot(initial_capital_eur=100.0, position_eur=15.0, bollinger_enabled=False, stochastic_enabled=False, paper_mode=True),
             tmp_path,
         )
         bot.last_entry_scan = 0.0

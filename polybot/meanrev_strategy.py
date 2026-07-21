@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import math
 import sqlite3
 import time
 from pathlib import Path
@@ -41,7 +42,8 @@ async def fetch_ohlc(pair: str, interval_min: int = 60) -> list[tuple]:
             out.append((float(r[0]), float(r[1]), float(r[2]), float(r[3]), float(r[4]), float(r[5]), float(r[6])))
         except Exception:
             continue
-    return out
+    # Kraken liefert die laufende, noch nicht abgeschlossene Kerze als letzte Zeile.
+    return out[:-1] if len(out) > 1 else []
 
 
 def rsi_wilder(closes: list[float], period: int = 14) -> float | None:
@@ -67,6 +69,27 @@ def rsi_wilder(closes: list[float], period: int = 14) -> float | None:
     return 100 - (100 / (1 + rs))
 
 
+def bollinger_lower(closes: list[float], period: int = 20, stddev_multiplier: float = 2.0) -> float | None:
+    if period <= 1 or len(closes) < period:
+        return None
+    window = closes[-period:]
+    mean = sum(window) / period
+    variance = sum((value - mean) ** 2 for value in window) / period
+    return mean - float(stddev_multiplier) * math.sqrt(variance)
+
+
+def stochastic_k(rows: list[tuple], period: int = 14) -> float | None:
+    if period <= 1 or len(rows) < period:
+        return None
+    window = rows[-period:]
+    lowest_low = min(row[3] for row in window)
+    highest_high = max(row[2] for row in window)
+    price_range = highest_high - lowest_low
+    if price_range <= 0:
+        return None
+    return (window[-1][4] - lowest_low) / price_range * 100
+
+
 class MeanRevBot:
     def __init__(
         self,
@@ -75,6 +98,12 @@ class MeanRevBot:
         entry_drop_pct: float = 8.0,
         rsi_period: int = 14,
         rsi_max: float = 30.0,
+        bollinger_enabled: bool = True,
+        bollinger_period: int = 20,
+        bollinger_stddev: float = 2.0,
+        stochastic_enabled: bool = True,
+        stochastic_period: int = 14,
+        stochastic_max: float = 20.0,
         confirm_pct: float = 0.5,
         position_eur: float = 15.0,
         max_open_positions: int = 3,
@@ -91,6 +120,12 @@ class MeanRevBot:
         self.entry_drop_pct = float(entry_drop_pct)
         self.rsi_period = int(rsi_period)
         self.rsi_max = float(rsi_max)
+        self.bollinger_enabled = bool(bollinger_enabled)
+        self.bollinger_period = int(bollinger_period)
+        self.bollinger_stddev = float(bollinger_stddev)
+        self.stochastic_enabled = bool(stochastic_enabled)
+        self.stochastic_period = int(stochastic_period)
+        self.stochastic_max = float(stochastic_max)
         self.confirm_pct = float(confirm_pct)
         self.position_eur = float(position_eur)
         self.max_open_positions = int(max_open_positions)
@@ -261,13 +296,28 @@ class MeanRevBot:
             pair = snap["pair"]
             ohlc = await fetch_ohlc(pair, 60)
             await asyncio.sleep(1)
-            if len(ohlc) < max(self.rsi_period + 1, 8):
+            min_bars = max(
+                self.rsi_period + 1,
+                self.bollinger_period if self.bollinger_enabled else 0,
+                self.stochastic_period if self.stochastic_enabled else 0,
+                8,
+            )
+            if len(ohlc) < min_bars:
                 logger.info("⏭️ REV %s: zu wenig OHLC-Daten", pair)
                 continue
             closes = [r[4] for r in ohlc]
             rsi = rsi_wilder(closes, self.rsi_period)
             if rsi is None or rsi >= self.rsi_max:
                 logger.info("⏭️ REV %s: RSI %.1f >= %.1f", pair, rsi if rsi is not None else -1, self.rsi_max)
+                continue
+            lower_band = bollinger_lower(closes, self.bollinger_period, self.bollinger_stddev) if self.bollinger_enabled else None
+            signal_close = closes[-1]
+            if self.bollinger_enabled and (lower_band is None or signal_close > lower_band):
+                logger.info("⏭️ REV %s: Close %.6f nicht unter Bollinger-Unterband %.6f", pair, signal_close, lower_band if lower_band is not None else -1)
+                continue
+            stoch_k = stochastic_k(ohlc, self.stochastic_period) if self.stochastic_enabled else None
+            if self.stochastic_enabled and (stoch_k is None or stoch_k >= self.stochastic_max):
+                logger.info("⏭️ REV %s: Stochastic %%K %.1f >= %.1f", pair, stoch_k if stoch_k is not None else -1, self.stochastic_max)
                 continue
             low6 = min(r[3] for r in ohlc[-6:])
             last = float(snap["last_price"])
@@ -285,8 +335,8 @@ class MeanRevBot:
             self.capital_remaining -= amount
             self.portfolio[pair] = {"shares": shares, "cost_basis": amount, "entry_price": fill_price, "entry_ts": time.time(), "trade_id": trade_id}
             self.trade_count += 1
-            opened.append({"pair": pair, "amount": amount, "price": fill_price, "rsi": rsi})
-            logger.info("📝 REV Entry %s: %.2f€ @ %.6f€ (Last %.6f€) | drop %.2f%% RSI %.1f", pair, amount, fill_price, last, snap["change_pct"], rsi)
+            opened.append({"pair": pair, "amount": amount, "price": fill_price, "rsi": rsi, "bollinger_lower": lower_band, "stochastic_k": stoch_k})
+            logger.info("📝 REV Entry %s: %.2f€ @ %.6f€ (Last %.6f€) | drop %.2f%% RSI %.1f BB %s Stoch %s", pair, amount, fill_price, last, snap["change_pct"], rsi, f"{lower_band:.6f}" if lower_band is not None else "off", f"{stoch_k:.1f}" if stoch_k is not None else "off")
         self._save_state()
         return opened
 
