@@ -7,7 +7,7 @@ import signal
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
-from polybot.paper_db import init_db
+from polybot.paper_db import init_db, mark_bot_started
 from polybot.momentum_strategy import MomentumBot
 
 os.makedirs("logs", exist_ok=True)
@@ -33,6 +33,7 @@ PAPER_MODE = os.getenv("MOM_PAPER_MODE", "true").lower() == "true"
 
 async def main():
     await init_db()
+    await mark_bot_started("momentum")
     bot = MomentumBot(
         initial_capital_eur=BUDGET,
         interval_sec=int(INTERVAL_H * 3600),

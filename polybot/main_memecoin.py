@@ -7,7 +7,7 @@ import signal
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
-from polybot.paper_db import init_db
+from polybot.paper_db import init_db, mark_bot_started
 from polybot.memecoin_strategy import MemecoinMomentumBot
 
 os.makedirs("logs", exist_ok=True)
@@ -21,23 +21,24 @@ logger.addHandler(logging.StreamHandler())
 BUDGET = float(os.getenv("CHAIN_BUDGET", "100"))
 INTERVAL_SEC = int(os.getenv("CHAIN_INTERVAL_SEC", "300"))
 ENTRY_CHANGE_PCT = float(os.getenv("CHAIN_ENTRY_CHANGE_PCT", "8.0"))
-ENTRY_MAX_CHANGE_PCT = float(os.getenv("CHAIN_ENTRY_MAX_CHANGE_PCT", "35.0"))
-MAX_H6_CHANGE_PCT = float(os.getenv("CHAIN_MAX_H6_CHANGE_PCT", "100.0"))
-MIN_LIQUIDITY_USD = float(os.getenv("CHAIN_MIN_LIQUIDITY_USD", "50000"))
-MIN_LIQUIDITY_DYNAMIC_USD = float(os.getenv("CHAIN_MIN_LIQUIDITY_DYNAMIC_USD", "100000"))
-MIN_VOLUME_USD = float(os.getenv("CHAIN_MIN_VOLUME_USD", "100000"))
-MIN_VOLUME_DYNAMIC_USD = float(os.getenv("CHAIN_MIN_VOLUME_DYNAMIC_USD", "500000"))
-MIN_BUY_SELL_RATIO = float(os.getenv("CHAIN_MIN_BUY_SELL_RATIO", "1.2"))
-MIN_H1_TXNS = int(os.getenv("CHAIN_MIN_H1_TXNS", "50"))
+ENTRY_MAX_CHANGE_PCT = float(os.getenv("CHAIN_ENTRY_MAX_CHANGE_PCT", "25.0"))
+MAX_M5_CHANGE_PCT = float(os.getenv("CHAIN_MAX_M5_CHANGE_PCT", "4.0"))
+MAX_H6_CHANGE_PCT = float(os.getenv("CHAIN_MAX_H6_CHANGE_PCT", "70.0"))
+MIN_LIQUIDITY_USD = float(os.getenv("CHAIN_MIN_LIQUIDITY_USD", "100000"))
+MIN_LIQUIDITY_DYNAMIC_USD = float(os.getenv("CHAIN_MIN_LIQUIDITY_DYNAMIC_USD", "200000"))
+MIN_VOLUME_USD = float(os.getenv("CHAIN_MIN_VOLUME_USD", "150000"))
+MIN_VOLUME_DYNAMIC_USD = float(os.getenv("CHAIN_MIN_VOLUME_DYNAMIC_USD", "750000"))
+MIN_BUY_SELL_RATIO = float(os.getenv("CHAIN_MIN_BUY_SELL_RATIO", "1.35"))
+MIN_H1_TXNS = int(os.getenv("CHAIN_MIN_H1_TXNS", "80"))
 DYNAMIC_ENABLED = os.getenv("CHAIN_DYNAMIC_ENABLED", "true").lower() == "true"
 MAX_DYNAMIC_TOKENS = int(os.getenv("CHAIN_MAX_DYNAMIC_TOKENS", "15"))
-MAX_DYNAMIC_POSITIONS = int(os.getenv("CHAIN_MAX_DYNAMIC_POSITIONS", "2"))
-MIN_PAIR_AGE_H = float(os.getenv("CHAIN_MIN_PAIR_AGE_H", "24"))
+MAX_DYNAMIC_POSITIONS = int(os.getenv("CHAIN_MAX_DYNAMIC_POSITIONS", "1"))
+MIN_PAIR_AGE_H = float(os.getenv("CHAIN_MIN_PAIR_AGE_H", "48"))
 POSITION_EUR = float(os.getenv("CHAIN_POSITION_EUR", "8"))
 MAX_OPEN_POSITIONS = int(os.getenv("CHAIN_MAX_OPEN_POSITIONS", "3"))
 TAKE_PROFIT_PCT = float(os.getenv("CHAIN_TAKE_PROFIT_PCT", "15"))
 TRAILING_STOP_PCT = float(os.getenv("CHAIN_TRAILING_STOP_PCT", "12"))
-TRAIL_FLOOR_PCT = float(os.getenv("CHAIN_TRAIL_FLOOR_PCT", "5"))
+TRAIL_FLOOR_PCT = float(os.getenv("CHAIN_TRAIL_FLOOR_PCT", "8.5"))
 STOP_LOSS_PCT = float(os.getenv("CHAIN_STOP_LOSS_PCT", "10"))
 MAX_HOLD_H = float(os.getenv("CHAIN_MAX_HOLD_H", "24"))
 COOLDOWN_H = float(os.getenv("CHAIN_COOLDOWN_H", "4"))
@@ -48,11 +49,13 @@ PAPER_MODE = os.getenv("CHAIN_PAPER_MODE", "true").lower() == "true"
 
 async def main():
     await init_db()
+    await mark_bot_started("memecoin")
     bot = MemecoinMomentumBot(
         initial_capital_eur=BUDGET,
         interval_sec=INTERVAL_SEC,
         entry_change_pct=ENTRY_CHANGE_PCT,
         entry_max_change_pct=ENTRY_MAX_CHANGE_PCT,
+        max_m5_change_pct=MAX_M5_CHANGE_PCT,
         max_h6_change_pct=MAX_H6_CHANGE_PCT,
         min_liquidity_usd=MIN_LIQUIDITY_USD,
         min_liquidity_dynamic_usd=MIN_LIQUIDITY_DYNAMIC_USD,

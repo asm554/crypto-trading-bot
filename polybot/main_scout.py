@@ -7,7 +7,7 @@ import signal
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
-from polybot.paper_db import init_db
+from polybot.paper_db import init_db, mark_bot_started
 from polybot.scout_strategy import ScoutBot
 
 os.makedirs("logs", exist_ok=True)
@@ -20,6 +20,7 @@ def env_int(name, default): return int(os.getenv(name, str(default)))
 
 async def main():
     await init_db()
+    await mark_bot_started("scout")
     bot = ScoutBot(
         initial_capital_eur=env_float("SCOUT_BUDGET", 100), interval_sec=env_int("SCOUT_INTERVAL_SEC", 30),
         position_eur=env_float("SCOUT_POSITION_EUR", 5), max_open_positions=env_int("SCOUT_MAX_OPEN_POSITIONS", 2),

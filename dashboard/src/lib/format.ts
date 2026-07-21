@@ -36,6 +36,17 @@ export function relTime(ts: number | null): string {
   return `vor ${Math.floor(diff / 86400)} Tagen`;
 }
 
+export function runtime(ts: number | null): string {
+  if (!ts) return "nicht erfasst";
+  const diff = Math.max(0, Date.now() / 1000 - ts);
+  const days = Math.floor(diff / 86400);
+  const hours = Math.floor((diff % 86400) / 3600);
+  const minutes = Math.floor((diff % 3600) / 60);
+  if (days > 0) return `${days} T. ${hours} Std.`;
+  if (hours > 0) return `${hours} Std. ${minutes} Min.`;
+  return `${minutes} Min.`;
+}
+
 export function clockTime(ts: number): string {
   return new Date(ts * 1000).toLocaleString("de-DE", {
     day: "2-digit",

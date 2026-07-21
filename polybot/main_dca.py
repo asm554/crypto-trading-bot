@@ -24,7 +24,7 @@ import signal
 
 from polybot import config
 from polybot.dca_strategy import DCABot
-from polybot.paper_db import init_db
+from polybot.paper_db import init_db, mark_bot_started
 from polybot.alerts import send_telegram
 from polybot.bot_overview import build_overview_message
 
@@ -91,6 +91,7 @@ async def status_reporter(bot: DCABot, interval_sec: int = 3600) -> None:
 
 async def main() -> None:
     await init_db()
+    await mark_bot_started("dca")
 
     bot = DCABot(
         initial_capital_eur=BUDGET_EUR,

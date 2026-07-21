@@ -61,6 +61,7 @@ async def sync_once() -> dict:
     trades: list[dict] = []
     snapshots: list[dict] = []
 
+
     async with aiosqlite.connect(db_path, timeout=30.0) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -75,6 +76,7 @@ async def sync_once() -> dict:
         ) as cur:
             async for row in cur:
                 snapshots.append(dict(row))
+
 
     async with aiohttp.ClientSession() as session:
         trades_written = await _upsert(session, "paper_trades", trades, on_conflict="id")

@@ -210,6 +210,7 @@ class MemecoinMomentumBot:
         interval_sec: int = 300,
         entry_change_pct: float = 8.0,
         entry_max_change_pct: float = 35.0,
+        max_m5_change_pct: float = 4.0,
         max_h6_change_pct: float = 100.0,
         min_liquidity_usd: float = 50_000.0,
         min_liquidity_dynamic_usd: float = 100_000.0,
@@ -241,6 +242,7 @@ class MemecoinMomentumBot:
         self.interval_sec = int(interval_sec)
         self.entry_change_pct = float(entry_change_pct)
         self.entry_max_change_pct = float(entry_max_change_pct)
+        self.max_m5_change_pct = float(max_m5_change_pct)
         self.max_h6_change_pct = float(max_h6_change_pct)
         self.min_liquidity_usd = float(min_liquidity_usd)
         self.min_liquidity_dynamic_usd = float(min_liquidity_dynamic_usd)
@@ -539,8 +541,8 @@ class MemecoinMomentumBot:
             if not (self.entry_change_pct <= change_h1 <= self.entry_max_change_pct):
                 logger.info("⏭️ CHAIN %s: Momentum %+0.2f%% (h1) nicht in %.2f..%.2f%%", symbol, change_h1, self.entry_change_pct, self.entry_max_change_pct)
                 continue
-            if change_m5 is not None and change_m5 <= 0:
-                logger.info("⏭️ CHAIN %s: m5-Momentum %+0.2f%% nicht mehr positiv – Pump könnte auslaufen", symbol, change_m5)
+            if change_m5 is not None and not (0 < change_m5 <= self.max_m5_change_pct):
+                logger.info("⏭️ CHAIN %s: m5-Momentum %+0.2f%% nicht im Reclaim-Band 0..%.2f%%", symbol, change_m5, self.max_m5_change_pct)
                 continue
             if change_h6 is not None and change_h6 >= self.max_h6_change_pct:
                 logger.info("⏭️ CHAIN %s: h6-Bewegung %+0.2f%% >= %.0f%% – möglicher Tages-Blowoff", symbol, change_h6, self.max_h6_change_pct)

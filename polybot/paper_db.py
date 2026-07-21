@@ -84,6 +84,14 @@ SYNC_SCHEMA_STATEMENTS = (
         CREATE INDEX IF NOT EXISTS idx_equity_bot_ts ON equity_snapshots(bot, ts)
     ''',
     '''
+        CREATE TABLE IF NOT EXISTS bot_status (
+            bot TEXT PRIMARY KEY,
+            started_at REAL NOT NULL,
+            heartbeat_at REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'running'
+        )
+    ''',
+    '''
         CREATE TABLE IF NOT EXISTS azuro_bets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp REAL,
@@ -279,6 +287,38 @@ async def log_equity_snapshot(bot: str, equity_eur: float, cash_eur: float, open
             (bot, time.time(), float(equity_eur), float(cash_eur), int(open_positions), float(unrealized_pnl_eur), float(realized_pnl_eur)),
         )
         await db.commit()
+
+
+async def mark_bot_started(bot: str, started_at: float | None = None) -> None:
+    """Setzt den Laufzeitbeginn pro Prozessstart und aktualisiert den Heartbeat."""
+    aiosqlite = _require_aiosqlite()
+    now = float(started_at or time.time())
+    async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
+        await db.execute(
+            "INSERT INTO bot_status (bot, started_at, heartbeat_at, status) VALUES (?, ?, ?, 'running') "
+            "ON CONFLICT(bot) DO UPDATE SET started_at=excluded.started_at, heartbeat_at=excluded.heartbeat_at, status='running'",
+            (bot, now, now),
+        )
+        await db.execute(
+            "INSERT INTO equity_snapshots (bot, ts, equity_eur, cash_eur, open_positions, unrealized_pnl_eur, realized_pnl_eur) VALUES (?, ?, 0, 0, 0, 0, 0)",
+            (f"__runtime_{bot}", now),
+        )
+        await db.commit()
+
+
+async def mark_bot_stopped(bot: str) -> None:
+    aiosqlite = _require_aiosqlite()
+    async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
+        await db.execute("UPDATE bot_status SET heartbeat_at=?, status='stopped' WHERE bot=?", (time.time(), bot))
+        await db.commit()
+
+
+async def get_bot_statuses() -> list[dict]:
+    aiosqlite = _require_aiosqlite()
+    async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT bot, started_at, heartbeat_at, status FROM bot_status") as cursor:
+            return [dict(row) async for row in cursor]
 
 
 async def get_paper_stats():
