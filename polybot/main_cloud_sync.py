@@ -16,6 +16,7 @@ import logging.handlers
 import os
 
 from polybot.cloud_sync import is_configured, sync_once
+from polybot.paper_db import init_db
 
 os.makedirs("logs", exist_ok=True)
 handler = logging.handlers.RotatingFileHandler(
@@ -31,6 +32,7 @@ INTERVAL_SEC = int(os.getenv("CLOUD_SYNC_INTERVAL_SEC", "30"))
 
 
 async def main() -> None:
+    await init_db()
     if not is_configured():
         logger.warning(
             "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY nicht gesetzt — Cloud-Sync bleibt untätig."

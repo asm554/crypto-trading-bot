@@ -7,7 +7,7 @@ import signal
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
-from polybot.paper_db import init_db
+from polybot.paper_db import init_db, mark_bot_started
 from polybot.arb_strategy import TriangularArbBot
 
 os.makedirs("logs", exist_ok=True)
@@ -27,6 +27,7 @@ PAPER_MODE = os.getenv("ARB_PAPER_MODE", "true").lower() == "true"
 
 async def main():
     await init_db()
+    await mark_bot_started("arb")
     bot = TriangularArbBot(
         initial_capital_eur=BUDGET,
         interval_sec=INTERVAL_SEC,

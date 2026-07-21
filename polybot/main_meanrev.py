@@ -7,7 +7,7 @@ import signal
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
-from polybot.paper_db import init_db
+from polybot.paper_db import init_db, mark_bot_started
 from polybot.meanrev_strategy import MeanRevBot
 
 os.makedirs("logs", exist_ok=True)
@@ -23,6 +23,12 @@ INTERVAL_H = float(os.getenv("REV_INTERVAL_H", "1"))
 ENTRY_DROP_PCT = float(os.getenv("REV_ENTRY_DROP_PCT", "8.0"))
 RSI_PERIOD = int(os.getenv("REV_RSI_PERIOD", "14"))
 RSI_MAX = float(os.getenv("REV_RSI_MAX", "30"))
+BOLLINGER_ENABLED = os.getenv("REV_BOLLINGER_ENABLED", "true").lower() == "true"
+BOLLINGER_PERIOD = int(os.getenv("REV_BOLLINGER_PERIOD", "20"))
+BOLLINGER_STDDEV = float(os.getenv("REV_BOLLINGER_STDDEV", "2.0"))
+STOCHASTIC_ENABLED = os.getenv("REV_STOCHASTIC_ENABLED", "true").lower() == "true"
+STOCHASTIC_PERIOD = int(os.getenv("REV_STOCHASTIC_PERIOD", "14"))
+STOCHASTIC_MAX = float(os.getenv("REV_STOCHASTIC_MAX", "20"))
 CONFIRM_PCT = float(os.getenv("REV_CONFIRM_PCT", "0.5"))
 POSITION_EUR = float(os.getenv("REV_POSITION_EUR", "15"))
 MAX_OPEN_POSITIONS = int(os.getenv("REV_MAX_OPEN_POSITIONS", "3"))
@@ -34,12 +40,19 @@ PAPER_MODE = os.getenv("REV_PAPER_MODE", "true").lower() == "true"
 
 async def main():
     await init_db()
+    await mark_bot_started("meanrev")
     bot = MeanRevBot(
         initial_capital_eur=BUDGET,
         interval_sec=int(INTERVAL_H * 3600),
         entry_drop_pct=ENTRY_DROP_PCT,
         rsi_period=RSI_PERIOD,
         rsi_max=RSI_MAX,
+        bollinger_enabled=BOLLINGER_ENABLED,
+        bollinger_period=BOLLINGER_PERIOD,
+        bollinger_stddev=BOLLINGER_STDDEV,
+        stochastic_enabled=STOCHASTIC_ENABLED,
+        stochastic_period=STOCHASTIC_PERIOD,
+        stochastic_max=STOCHASTIC_MAX,
         confirm_pct=CONFIRM_PCT,
         position_eur=POSITION_EUR,
         max_open_positions=MAX_OPEN_POSITIONS,

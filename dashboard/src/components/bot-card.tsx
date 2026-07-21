@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Trophy } from "lucide-react";
 import type { BotSummary } from "@/lib/bots";
-import { eur, signedEur, signedPct, pnlToneClass, relTime } from "@/lib/format";
+import { eur, signedEur, signedPct, pnlToneClass, relTime, runtime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
@@ -68,7 +68,12 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
               {signedEur(bot.totalPnlEur)} ({signedPct(bot.pnlPct)})
             </div>
           </div>
-          <span className="text-xs text-muted-foreground">{relTime(bot.lastActivity)}</span>
+          <div className="text-right text-xs text-muted-foreground">
+            <div>{relTime(bot.lastActivity)}</div>
+            <div className="mt-1 font-mono tabular-nums" title="Seit dem letzten Prozessstart">
+              Läuft seit {runtime(bot.runtimeStartedAt)}
+            </div>
+          </div>
         </div>
       </CardHeader>
 

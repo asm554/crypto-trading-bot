@@ -7,7 +7,7 @@ import signal
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
-from polybot.paper_db import init_db
+from polybot.paper_db import init_db, mark_bot_started
 from polybot.daytrade_strategy import DaytradeBot
 
 os.makedirs("logs", exist_ok=True)
@@ -24,6 +24,9 @@ LOOKBACK_H = int(os.getenv("DAY_LOOKBACK_H", "4"))
 ENTRY_CHANGE_PCT = float(os.getenv("DAY_ENTRY_CHANGE_PCT", "3.0"))
 ENTRY_MAX_CHANGE_PCT = float(os.getenv("DAY_ENTRY_MAX_CHANGE_PCT", "25.0"))
 MIN_VOLUME_EUR = float(os.getenv("DAY_MIN_VOLUME_EUR", "500000"))
+VOLUME_SPIKE_ENABLED = os.getenv("DAY_VOLUME_SPIKE_ENABLED", "true").lower() == "true"
+VOLUME_LOOKBACK_BARS = int(os.getenv("DAY_VOLUME_LOOKBACK_BARS", "20"))
+VOLUME_MULTIPLIER = float(os.getenv("DAY_VOLUME_MULTIPLIER", "2.0"))
 POSITION_EUR = float(os.getenv("DAY_POSITION_EUR", "10"))
 MAX_OPEN_POSITIONS = int(os.getenv("DAY_MAX_OPEN_POSITIONS", "4"))
 TRAILING_STOP_PCT = float(os.getenv("DAY_TRAILING_STOP_PCT", "1.5"))
@@ -34,6 +37,7 @@ PAPER_MODE = os.getenv("DAY_PAPER_MODE", "true").lower() == "true"
 
 async def main():
     await init_db()
+    await mark_bot_started("daytrade")
     bot = DaytradeBot(
         initial_capital_eur=BUDGET,
         interval_sec=INTERVAL_SEC,
@@ -41,6 +45,9 @@ async def main():
         entry_change_pct=ENTRY_CHANGE_PCT,
         entry_max_change_pct=ENTRY_MAX_CHANGE_PCT,
         min_volume_eur=MIN_VOLUME_EUR,
+        volume_spike_enabled=VOLUME_SPIKE_ENABLED,
+        volume_lookback_bars=VOLUME_LOOKBACK_BARS,
+        volume_multiplier=VOLUME_MULTIPLIER,
         position_eur=POSITION_EUR,
         max_open_positions=MAX_OPEN_POSITIONS,
         trailing_stop_pct=TRAILING_STOP_PCT,

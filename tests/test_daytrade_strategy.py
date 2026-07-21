@@ -5,7 +5,7 @@ import pytest
 
 import polybot.daytrade_strategy as daytrade_strategy
 import polybot.paper_db as paper_db
-from polybot.daytrade_strategy import DaytradeBot
+from polybot.daytrade_strategy import DaytradeBot, relative_volume
 
 
 def _valid_ticker(open_price="100", last="110", vol24="2000", vwap24="108", bid=None, ask=None):
@@ -54,6 +54,16 @@ def test_snapshot_for_pair_returns_none_on_missing_or_garbage():
     assert DaytradeBot._snapshot_for_pair("SOLEUR", {"SOLEUR": _valid_ticker(open_price="0")}) is None
 
 
+def test_relative_volume_compares_last_bar_with_previous_average():
+    rows = [(float(i), 1.0, 1.0, 1.0, 1.0, 1.0, 100.0) for i in range(20)]
+    rows.append((20.0, 1.0, 1.0, 1.0, 1.0, 1.0, 250.0))
+    assert relative_volume(rows, lookback_bars=20) == pytest.approx(2.5)
+
+
+def test_relative_volume_requires_complete_positive_history():
+    assert relative_volume([(0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 100.0)], lookback_bars=20) is None
+
+
 def test_scan_entries_uses_short_lookback_not_24h(monkeypatch, tmp_path):
     """Der Zappler fragt rolling_change_pct mit dem konfigurierten lookback_hours
     ab, nicht rolling_24h_change_pct - das ist der zentrale Unterschied zu Momentum."""
@@ -75,7 +85,7 @@ def test_scan_entries_uses_short_lookback_not_24h(monkeypatch, tmp_path):
     async def scenario():
         await paper_db.init_db()
         bot = _bind_bot_to_tmp_storage(
-            DaytradeBot(initial_capital_eur=100.0, position_eur=10.0, lookback_hours=4, paper_mode=True),
+            DaytradeBot(initial_capital_eur=100.0, position_eur=10.0, lookback_hours=4, volume_spike_enabled=False, paper_mode=True),
             tmp_path,
         )
         bot.last_entry_scan = 0.0
@@ -107,7 +117,7 @@ def test_scan_entries_fills_at_ask_not_last(monkeypatch, tmp_path):
     async def scenario():
         await paper_db.init_db()
         bot = _bind_bot_to_tmp_storage(
-            DaytradeBot(initial_capital_eur=100.0, position_eur=10.0, paper_mode=True),
+            DaytradeBot(initial_capital_eur=100.0, position_eur=10.0, volume_spike_enabled=False, paper_mode=True),
             tmp_path,
         )
         bot.last_entry_scan = 0.0
@@ -118,6 +128,36 @@ def test_scan_entries_fills_at_ask_not_last(monkeypatch, tmp_path):
         assert opened[0]["price"] == pytest.approx(112.0)
         assert bot.portfolio["SOLEUR"]["shares"] == pytest.approx(10.0 / 112.0)
         assert bot.portfolio["SOLEUR"]["peak_price"] == pytest.approx(110.0)
+
+    asyncio.run(scenario())
+
+
+def test_scan_entries_rejects_weak_relative_volume(monkeypatch, tmp_path):
+    db_path = tmp_path / "paper_trades.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def fake_fetch_ticker_data(_pairs):
+        return {"SOLEUR": _valid_ticker(open_price="100", last="110", vol24="10000", vwap24="110")}
+
+    async def fake_rolling(_pair, *args, **kwargs):
+        return 10.0
+
+    async def fake_fetch_ohlc(_pair, _interval_min=60):
+        rows = [(float(i), 1.0, 1.0, 1.0, 1.0, 1.0, 100.0) for i in range(20)]
+        return rows + [(20.0, 1.0, 1.0, 1.0, 1.0, 1.0, 150.0)]
+
+    monkeypatch.setattr(daytrade_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
+    monkeypatch.setattr(daytrade_strategy, "rolling_change_pct", fake_rolling)
+    monkeypatch.setattr(daytrade_strategy, "fetch_ohlc", fake_fetch_ohlc)
+
+    async def scenario():
+        await paper_db.init_db()
+        bot = _bind_bot_to_tmp_storage(
+            DaytradeBot(initial_capital_eur=100.0, position_eur=10.0, volume_multiplier=2.0, paper_mode=True),
+            tmp_path,
+        )
+        assert await bot.scan_entries() == []
+        assert bot.portfolio == {}
 
     asyncio.run(scenario())
 

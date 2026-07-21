@@ -16,9 +16,11 @@ import sqlite3
 import time
 from pathlib import Path
 
+import aiohttp
+
 from polybot import config
 from polybot import paper_db as paper_db_module
-from polybot.dca_strategy import CANDIDATE_PAIRS, PAIR_MAP, extract_quote, fetch_ticker_data, rolling_change_pct
+from polybot.dca_strategy import CANDIDATE_PAIRS, KRAKEN_PUBLIC, PAIR_MAP, extract_quote, fetch_ticker_data, rolling_change_pct
 from polybot.paper_db import get_open_trades_by_prefix, log_equity_snapshot, log_paper_trade, resolve_trade
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,41 @@ PREFIX = "DAY_"
 BOT_KEY = "daytrade"
 
 LOOKBACK_INTERVAL_MIN = 60  # stündliche OHLC-Kerzen, wie bei DCA/Momentum/MeanRev
+
+
+async def fetch_ohlc(pair: str, interval_min: int = LOOKBACK_INTERVAL_MIN) -> list[tuple]:
+    internal = PAIR_MAP.get(pair, pair)
+    url = f"{KRAKEN_PUBLIC}/OHLC?pair={internal}&interval={int(interval_min)}"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                data = await resp.json()
+    except Exception as exc:
+        logger.warning("OHLC fetch %s fehlgeschlagen: %s", pair, exc)
+        return []
+    for key, rows in data.get("result", {}).items():
+        if key == "last" or not isinstance(rows, list):
+            continue
+        parsed = []
+        for row in rows:
+            try:
+                parsed.append(tuple(float(value) for value in row[:7]))
+            except (TypeError, ValueError):
+                continue
+        # Die letzte Kraken-Zeile ist die aktuell laufende Kerze.
+        return parsed[:-1] if len(parsed) > 1 else []
+    return []
+
+
+def relative_volume(rows: list[tuple], lookback_bars: int = 20) -> float | None:
+    if lookback_bars <= 0 or len(rows) < lookback_bars + 1:
+        return None
+    current_volume = rows[-1][6]
+    previous = [row[6] for row in rows[-(lookback_bars + 1):-1]]
+    average = sum(previous) / len(previous)
+    if average <= 0:
+        return None
+    return current_volume / average
 
 
 class DaytradeBot:
@@ -37,6 +74,9 @@ class DaytradeBot:
         entry_change_pct: float = 3.0,
         entry_max_change_pct: float = 25.0,
         min_volume_eur: float = 500_000.0,
+        volume_spike_enabled: bool = True,
+        volume_lookback_bars: int = 20,
+        volume_multiplier: float = 2.0,
         position_eur: float = 10.0,
         max_open_positions: int = 4,
         trailing_stop_pct: float = 1.5,
@@ -53,6 +93,9 @@ class DaytradeBot:
         self.entry_change_pct = float(entry_change_pct)
         self.entry_max_change_pct = float(entry_max_change_pct)
         self.min_volume_eur = float(min_volume_eur)
+        self.volume_spike_enabled = bool(volume_spike_enabled)
+        self.volume_lookback_bars = int(volume_lookback_bars)
+        self.volume_multiplier = float(volume_multiplier)
         self.position_eur = float(position_eur)
         self.max_open_positions = int(max_open_positions)
         self.trailing_stop_pct = float(trailing_stop_pct)
@@ -244,6 +287,15 @@ class DaytradeBot:
             if snap["volume_eur"] < self.min_volume_eur:
                 logger.info("⏭️ DAY %s: Volumen %.0f€ < %.0f€", pair, snap["volume_eur"], self.min_volume_eur)
                 continue
+            volume_ratio = None
+            if self.volume_spike_enabled:
+                ohlc = await fetch_ohlc(pair, LOOKBACK_INTERVAL_MIN)
+                volume_ratio = relative_volume(ohlc, self.volume_lookback_bars)
+                if volume_ratio is None or volume_ratio < self.volume_multiplier:
+                    logger.info("⏭️ DAY %s: relatives Volumen %s < %.2fx", pair, f"{volume_ratio:.2f}x" if volume_ratio is not None else "n/a", self.volume_multiplier)
+                    continue
+                snap["score"] *= volume_ratio
+            snap["volume_ratio"] = volume_ratio
             candidates.append(snap)
         candidates.sort(key=lambda x: x["score"], reverse=True)
         opened = []
@@ -263,8 +315,8 @@ class DaytradeBot:
             self.capital_remaining -= amount
             self.portfolio[pair] = {"shares": shares, "cost_basis": amount, "entry_price": price, "entry_ts": time.time(), "peak_price": last, "trade_id": trade_id}
             self.trade_count += 1
-            opened.append({"pair": pair, "amount": amount, "price": price})
-            logger.info("📝 DAY Entry %s: %.2f€ @ %.6f€ (Last %.6f€) | %dh %+0.2f%%", pair, amount, price, last, self.lookback_hours, snap["change_pct"])
+            opened.append({"pair": pair, "amount": amount, "price": price, "volume_ratio": snap.get("volume_ratio")})
+            logger.info("📝 DAY Entry %s: %.2f€ @ %.6f€ (Last %.6f€) | %dh %+0.2f%% | rel. Volumen %s", pair, amount, price, last, self.lookback_hours, snap["change_pct"], f"{snap['volume_ratio']:.2f}x" if snap.get("volume_ratio") is not None else "off")
         self._save_state()
         return opened
 

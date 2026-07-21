@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "surfer" | "scout" | "hodl";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "surfer" | "scout" | "hodl";
 
 type BotMeta = {
   key: BotKey;
@@ -63,6 +63,13 @@ export const BOTS: BotMeta[] = [
     tagline: "Springt früh auf stark steigende Solana-Memecoins auf und nimmt den Gewinn bei rund +15 % mit.",
   },
   {
+    key: "pumpfun",
+    name: "Pump.fun",
+    nickname: "Der PumpFun",
+    prefix: "PUMP_",
+    tagline: "Verfolgt Pump.fun-Bonding-Curve-Events als separaten Paper-Trading-Bot.",
+  },
+  {
     key: "surfer",
     name: "Trend/Breakout",
     nickname: "Der Surfer",
@@ -94,6 +101,8 @@ export type BotSummary = {
   tradeCount: number;
   startedAt: number | null;
   lastActivity: number | null;
+  runtimeStartedAt: number | null;
+  runtimeStatus: string | null;
   hasData: boolean;
 };
 
@@ -119,6 +128,7 @@ export type EquityPoint = {
   arb: number | null;
   daytrade: number | null;
   memecoin: number | null;
+  pumpfun: number | null;
   surfer: number | null;
   scout: number | null;
   hodl: number | null;
@@ -148,6 +158,7 @@ type RawSnapshot = {
   realized_pnl_eur: number;
 };
 
+
 export function isCloudConfigured(): boolean {
   return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 }
@@ -176,6 +187,7 @@ async function fetchAllTrades(): Promise<RawTrade[]> {
 async function fetchAllSnapshots(): Promise<RawSnapshot[]> {
   return fetchTable<RawSnapshot>("equity_snapshots", "select=*&order=ts.asc&limit=20000");
 }
+
 
 function num(v: unknown, fallback = 0): number {
   const n = typeof v === "string" ? parseFloat(v) : (v as number);
@@ -210,6 +222,8 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const firstSnapshotTs = botSnaps.reduce((min, s) => Math.min(min, num(s.ts)), Infinity);
     const startedAt = Math.min(firstTradeTs, firstSnapshotTs);
     const lastActivity = Math.max(lastTradeTs, latestSnap ? num(latestSnap.ts) : 0) || null;
+    const runtimeSnapshots = snapshots.filter((s) => s.bot === `__runtime_${bot.key}`);
+    const runtime = runtimeSnapshots[runtimeSnapshots.length - 1];
 
     const totalPnl = equity - START_CAPITAL;
     return {
@@ -227,6 +241,8 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       tradeCount: botTrades.length,
       startedAt: Number.isFinite(startedAt) ? startedAt : null,
       lastActivity,
+      runtimeStartedAt: runtime ? num(runtime.ts) : null,
+      runtimeStatus: runtime ? "running" : null,
       hasData: botTrades.length > 0 || botSnaps.length > 0,
     };
   });
@@ -238,7 +254,7 @@ function toTradeRow(r: RawTrade): TradeRow {
   // Auflösung, da zwei dynamisch entdeckte Solana-Tokens denselben Namen
   // tragen können) — im Dashboard reicht das Symbol vor dem "@".
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
-  const pair = meta?.key === "memecoin" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
+  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
   return {
     id: r.id,
     botKey: meta?.key ?? "?",
@@ -272,7 +288,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, surfer: null, scout: null, hodl: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, surfer: null, scout: null, hodl: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -383,6 +399,25 @@ export function getSettings(): SettingsView {
         { label: "Max. offene Positionen", value: "3" },
         { label: "Max. Haltedauer", value: "24 Std." },
         { label: "Swap-Slippage", value: "1,5 %", hint: "On-chain gibt es kein Bid/Ask – simuliert den AMM-Preisimpact." },
+      ],
+    },
+    {
+      key: "pumpfun",
+      name: "Pump.fun",
+      nickname: "Der PumpFun",
+      params: [
+        { label: "Datenquelle", value: "PumpPortal WebSocket", hint: "Neue Token und Trades; keine Wallet und keine Orders." },
+        { label: "Modus", value: "100 % Paper-Trading" },
+        { label: "Positionsgröße", value: "5 €" },
+        { label: "Phasen", value: "Early Bonding Curve + Migration/Post-Migration" },
+        { label: "Entry Early", value: "+10 % bis +35 % Market-Cap-Momentum", hint: "Mindestens 20 Trades, 8 eindeutige Trader und positiver 30-Sekunden-Impuls." },
+        { label: "Kaufdruck", value: "mindestens 1,4× Buy/Sell" },
+        { label: "Curve-Fill", value: "virtuelle Reserven + simulierte Gebühr" },
+        { label: "Verlust-Bremse", value: "−20 %" },
+        { label: "Gewinnsicherung", value: "+30 %, Trailing-Floor +15 %" },
+        { label: "Max. Haltedauer Early", value: "45 Min." },
+        { label: "Max. Haltedauer migriert", value: "6 Std." },
+        { label: "Max. offene Positionen", value: "2" },
       ],
     },
     {
