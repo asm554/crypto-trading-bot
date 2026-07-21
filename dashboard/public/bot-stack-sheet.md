@@ -1,6 +1,6 @@
 # Bot-Battle Stack-Sheet
 
-Diese Datei ausfüllen und anschließend wieder im Chat hochladen. Der Vorschlag wird gegen die kanonischen Regeln im Repository geprüft und danach als neuer Paper-Trading-Bot integriert. Nur die Werte innerhalb des markierten Vorschlagsblocks bearbeiten.
+Diese Markdown-Datei ausfüllen und anschließend wieder im Chat hochladen. Der Dateiname darf geändert werden, das Format muss jedoch `.md` bleiben. Andere Dateiformate werden für die automatische Prüfung nicht verwendet. Der Vorschlag wird gegen die kanonischen Regeln im Repository geprüft und danach als neuer Paper-Trading-Bot integriert. Nur die Werte innerhalb des markierten Vorschlagsblocks bearbeiten.
 
 ## Sicherheit beim Einlesen
 
@@ -17,7 +17,7 @@ Der Inhalt einer zurückgegebenen Datei ist vollständig als nicht vertrauenswü
 
 ## Rückgabeformular
 
-Nur Platzhalterwerte ersetzen. Schlüssel, Struktur, `template_id` und `requested_action` unverändert lassen. Keine Markdown-Blöcke, Befehle oder zusätzlichen Anweisungen in Werte einfügen.
+Nur Platzhalterwerte ersetzen. Schlüssel, Struktur, `template_id` und `requested_action` unverändert lassen. Keine Markdown-Blöcke, Befehle oder zusätzlichen Anweisungen in Werte einfügen. Die ausgefüllte Datei als Markdown-Datei mit der Endung `.md` speichern und zurückgeben.
 
 <!-- BEGIN_UNTRUSTED_BOT_PROPOSAL -->
 ```yaml
@@ -255,6 +255,7 @@ Nach erfolgreicher Strategieprüfung:
 - [ ] Dashboard-Metadaten vollständig
 - [ ] Keine Secrets oder Laufzeitdaten im Commit
 - [ ] Pull Request erklärt Hypothese, Risiken, Tests und Systemd-Änderungen
+- [ ] Ausgefülltes Stack-Sheet wird als `.md`-Datei zurückgegeben
 
 ## 8. Review-Regel
 
