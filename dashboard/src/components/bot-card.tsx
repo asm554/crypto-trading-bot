@@ -19,6 +19,7 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank?: number; isLeader?: boolean }) {
   const botColor = `var(--bot-${bot.key})`;
   const optimizationThreshold = 30;
+  const isLongTermBenchmark = bot.key === "hodl";
   const optimizationReady = bot.closedTradeCount >= optimizationThreshold;
   const optimizationProgress = Math.min(100, (bot.closedTradeCount / optimizationThreshold) * 100);
   const tradesUntilOptimization = Math.max(0, optimizationThreshold - bot.closedTradeCount);
@@ -90,39 +91,48 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
         <Stat label="noch offen" value={signedEur(bot.unrealizedPnlEur)} tone={pnlToneClass(bot.unrealizedPnlEur)} />
         <Stat label="Trades gesamt" value={String(bot.tradeCount)} />
 
-        <div
-          className={cn(
-            "col-span-full mt-1 border px-3 py-3",
-            optimizationReady
-              ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-              : "border-amber-500/45 bg-amber-500/12 text-amber-800 dark:text-amber-200"
-          )}
-        >
-          <div className="flex items-center justify-between gap-3 text-xs font-semibold">
-            <span>Abgeschlossene Trades</span>
-            <span className="font-mono text-sm font-black tabular-nums">
-              {bot.closedTradeCount}/{optimizationThreshold}
-            </span>
+        {isLongTermBenchmark ? (
+          <div className="col-span-full mt-1 border border-sky-500/35 bg-sky-500/10 px-3 py-3 text-sky-800 dark:text-sky-200">
+            <div className="font-heading text-sm font-extrabold">Langfristiger Benchmark</div>
+            <p className="mt-1 text-xs leading-5 opacity-85">
+              Keine Optimierung nach 30 Trades. Bewertet wird die langfristige Entwicklung der festen BTC-, ETH- und SOL-Verteilung.
+            </p>
           </div>
+        ) : (
           <div
-            role="progressbar"
-            aria-label={`${bot.closedTradeCount} von ${optimizationThreshold} abgeschlossenen Trades bis zur nächsten Optimierung`}
-            aria-valuemin={0}
-            aria-valuemax={optimizationThreshold}
-            aria-valuenow={Math.min(bot.closedTradeCount, optimizationThreshold)}
-            className="mt-2 h-2.5 overflow-hidden bg-current/15"
+            className={cn(
+              "col-span-full mt-1 border px-3 py-3",
+              optimizationReady
+                ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : "border-amber-500/45 bg-amber-500/12 text-amber-800 dark:text-amber-200"
+            )}
           >
+            <div className="flex items-center justify-between gap-3 text-xs font-semibold">
+              <span>Abgeschlossene Trades</span>
+              <span className="font-mono text-sm font-black tabular-nums">
+                {bot.closedTradeCount}/{optimizationThreshold}
+              </span>
+            </div>
             <div
-              className="h-full bg-current transition-[width]"
-              style={{ width: `${optimizationProgress}%` }}
-            />
+              role="progressbar"
+              aria-label={`${bot.closedTradeCount} von ${optimizationThreshold} abgeschlossenen Trades bis zur nächsten Optimierung`}
+              aria-valuemin={0}
+              aria-valuemax={optimizationThreshold}
+              aria-valuenow={Math.min(bot.closedTradeCount, optimizationThreshold)}
+              className="mt-2 h-2.5 overflow-hidden bg-current/15"
+            >
+              <div
+                className="h-full bg-current transition-[width]"
+                style={{ width: `${optimizationProgress}%` }}
+              />
+            </div>
+            <p className="mt-2 font-heading text-sm font-extrabold leading-tight">
+              {optimizationReady
+                ? "Optimierung kann jetzt geprüft werden"
+                : `Noch ${tradesUntilOptimization} ${tradesUntilOptimization === 1 ? "Trade" : "Trades"} bis zur nächsten Optimierung`}
+            </p>
           </div>
-          <p className="mt-2 font-heading text-sm font-extrabold leading-tight">
-            {optimizationReady
-              ? "Optimierung kann jetzt geprüft werden"
-              : `Noch ${tradesUntilOptimization} ${tradesUntilOptimization === 1 ? "Trade" : "Trades"} bis zur nächsten Optimierung`}
-          </p>
-        </div>
+        )}
       </CardContent>
     </Card>
   );
