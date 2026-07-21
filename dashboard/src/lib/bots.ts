@@ -99,6 +99,7 @@ export type BotSummary = {
   totalPnlEur: number;
   pnlPct: number;
   tradeCount: number;
+  closedTradeCount: number;
   startedAt: number | null;
   lastActivity: number | null;
   runtimeStartedAt: number | null;
@@ -240,6 +241,7 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       totalPnlEur: round2(totalPnl),
       pnlPct: round2((totalPnl / START_CAPITAL) * 100),
       tradeCount: botTrades.length,
+      closedTradeCount: doneTrades.length,
       startedAt: Number.isFinite(startedAt) ? startedAt : null,
       lastActivity,
       runtimeStartedAt: runtime ? num(runtime.ts) : null,
