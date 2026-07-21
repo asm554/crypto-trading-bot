@@ -175,7 +175,7 @@ class SurferBot:
         if self.state_path.exists():
             try:
                 raw = json.loads(self.state_path.read_text())
-                self.capital_remaining = max(0.0, min(float(raw.get("capital_remaining", self.initial_capital_eur)), self.initial_capital_eur))
+                self.capital_remaining = max(0.0, float(raw.get("capital_remaining", self.initial_capital_eur)))
                 self.portfolio = raw.get("portfolio") or {}
                 self.consecutive_losses = int(raw.get("consecutive_losses", 0))
                 self.loss_pause_until = float(raw.get("loss_pause_until", 0.0))

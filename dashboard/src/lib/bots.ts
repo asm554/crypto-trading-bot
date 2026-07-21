@@ -137,7 +137,16 @@ type RawTrade = {
   unrealized_pnl: number | null;
 };
 
-type RawSnapshot = { id: number; bot: string; ts: number; equity_eur: number; cash_eur: number };
+type RawSnapshot = {
+  id: number;
+  bot: string;
+  ts: number;
+  equity_eur: number;
+  cash_eur: number;
+  open_positions: number;
+  unrealized_pnl_eur: number;
+  realized_pnl_eur: number;
+};
 
 export function isCloudConfigured(): boolean {
   return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
@@ -181,11 +190,17 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const openTrades = botTrades.filter((t) => t.resolved_at == null);
     const doneTrades = botTrades.filter((t) => t.resolved_at != null);
 
-    const unrealized = openTrades.reduce((s, t) => s + num(t.unrealized_pnl), 0);
-    const realized = doneTrades.reduce((s, t) => s + num(t.real_pnl), 0);
-
     const botSnaps = snapshots.filter((s) => s.bot === bot.key);
     const latestSnap = botSnaps[botSnaps.length - 1];
+
+    // Der neueste Snapshot ist die maßgebliche, zeitgleiche Bewertung. Die
+    // Trade-Summen bleiben der Fallback für Bots ohne Snapshot-Historie.
+    const unrealized = latestSnap
+      ? num(latestSnap.unrealized_pnl_eur)
+      : openTrades.reduce((s, t) => s + num(t.unrealized_pnl), 0);
+    const realized = latestSnap
+      ? num(latestSnap.realized_pnl_eur)
+      : doneTrades.reduce((s, t) => s + num(t.real_pnl), 0);
 
     const equity = latestSnap ? num(latestSnap.equity_eur) : START_CAPITAL;
     const cash = latestSnap ? num(latestSnap.cash_eur) : START_CAPITAL;
@@ -204,7 +219,7 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       tagline: bot.tagline,
       equityEur: round2(equity),
       cashEur: round2(cash),
-      openPositions: openTrades.length,
+      openPositions: latestSnap ? num(latestSnap.open_positions) : openTrades.length,
       realizedPnlEur: round2(realized),
       unrealizedPnlEur: round2(unrealized),
       totalPnlEur: round2(totalPnl),

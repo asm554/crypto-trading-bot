@@ -94,7 +94,7 @@ class DaytradeBot:
         if self.state_path.exists():
             try:
                 raw = json.loads(self.state_path.read_text())
-                self.capital_remaining = max(0.0, min(float(raw.get("capital_remaining", self.initial_capital_eur)), self.initial_capital_eur))
+                self.capital_remaining = max(0.0, float(raw.get("capital_remaining", self.initial_capital_eur)))
                 self.portfolio = raw.get("portfolio") or {}
                 self.cooldowns = {k: float(v) for k, v in (raw.get("cooldowns") or {}).items() if float(v) > time.time()}
                 self.last_entry_scan = float(raw.get("last_entry_scan", 0.0))

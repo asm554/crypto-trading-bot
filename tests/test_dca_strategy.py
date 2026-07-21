@@ -105,6 +105,7 @@ def _bind_bot_to_tmp_storage(bot, tmp_path):
     bot.trade_count = 0
     bot.coin_cooldowns = {}
     bot.risk_off_until = 0.0
+    bot.last_snapshot = 0.0
     return bot
 
 
@@ -432,3 +433,50 @@ def test_get_portfolio_value_reports_open_cost_basis_not_cumulative_turnover(mon
     assert value["total_invested_eur"] == pytest.approx(100.0)
     assert value["pnl_eur"] == pytest.approx(5.0)
     assert value["pnl_pct"] == pytest.approx(5.0)
+
+
+def test_dca_snapshot_uses_bid_and_roundtrip_fees(monkeypatch, tmp_path):
+    db_path = tmp_path / "paper_trades.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def fake_fetch_ticker_data(_pairs):
+        return {
+            "XXBTZEUR": {
+                "c": ["110.0"],
+                "b": ["109.89", "1", "1"],
+                "a": ["110.11", "1", "1"],
+            }
+        }
+
+    monkeypatch.setattr(dca_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
+
+    async def scenario():
+        await paper_db.init_db()
+        bot = _bind_bot_to_tmp_storage(
+            DCABot(initial_capital_eur=100.0, top_n=1, rounds_target=10, paper_mode=True),
+            tmp_path,
+        )
+        bot.capital_remaining = 90.0
+        bot.portfolio = {"XBTEUR": {"shares": 0.1, "cost_basis": 10.0}}
+
+        await bot.maybe_snapshot(force=True)
+
+        import sqlite3
+
+        conn = sqlite3.connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT bot,equity_eur,cash_eur,open_positions,unrealized_pnl_eur "
+                "FROM equity_snapshots ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        finally:
+            conn.close()
+
+        # 10.989 current value - 0.04 buy fee - 0.043956 sell fee.
+        assert row[0] == "dca"
+        assert row[1] == pytest.approx(100.905044)
+        assert row[2] == pytest.approx(90.0)
+        assert row[3] == 1
+        assert row[4] == pytest.approx(0.905044)
+
+    asyncio.run(scenario())

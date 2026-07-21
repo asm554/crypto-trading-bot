@@ -142,6 +142,10 @@ async def main() -> None:
 
 
 async def _shutdown(bot: DCABot, shutdown_event: asyncio.Event) -> None:
+    try:
+        await bot.maybe_snapshot(force=True)
+    except Exception as e:
+        logger.warning("DCA-Abschlusssnapshot fehlgeschlagen: %s", e)
     p = await bot.get_portfolio_value()
     logger.info(
         f"DCA-Bot gestoppt. Trades: {p['trade_count']} | "

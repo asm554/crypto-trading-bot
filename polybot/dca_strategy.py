@@ -259,6 +259,7 @@ class DCABot:
         recovery_reversal_pct: float = 0.8,
         recovery_ticket_eur: float = 5.0,
         recovery_max_exposure_factor: float = 1.5,
+        snapshot_interval_sec: int = 3600,
     ):
         self.initial_capital_eur = initial_capital_eur
         self.capital_remaining = initial_capital_eur   # verbleibendes Kapital
@@ -292,6 +293,7 @@ class DCABot:
         self.recovery_reversal_pct = float(recovery_reversal_pct)
         self.recovery_ticket_eur = max(0.0, float(recovery_ticket_eur))
         self.recovery_max_exposure_factor = max(1.0, float(recovery_max_exposure_factor))
+        self.snapshot_interval_sec = max(60, int(snapshot_interval_sec))
 
         data_dir = Path(paper_db_module.DB_PATH).resolve().parent
         data_dir.mkdir(parents=True, exist_ok=True)
@@ -306,6 +308,7 @@ class DCABot:
         self.trade_count = 0
         self.coin_cooldowns: dict[str, float] = {}
         self.risk_off_until = 0.0
+        self.last_snapshot = 0.0
 
         self._load_state_or_rebuild()
 
@@ -327,12 +330,13 @@ class DCABot:
         if self.state_path.exists():
             try:
                 raw = json.loads(self.state_path.read_text())
-                self.capital_remaining = max(0.0, min(float(raw.get('capital_remaining', self.initial_capital_eur)), self.initial_capital_eur))
+                self.capital_remaining = max(0.0, float(raw.get('capital_remaining', self.initial_capital_eur)))
                 self.total_invested = max(0.0, float(raw.get('total_invested', 0.0)))
                 self.last_rescan = float(raw.get('last_rescan', 0.0))
                 self.last_buy = float(raw.get('last_buy', 0.0))
                 self.trade_count = int(raw.get('trade_count', 0))
                 self.risk_off_until = float(raw.get('risk_off_until', 0.0))
+                self.last_snapshot = float(raw.get('last_snapshot', 0.0))
 
                 portfolio = {}
                 for pair, pos in (raw.get('portfolio') or {}).items():
@@ -439,6 +443,7 @@ class DCABot:
                 'trade_count': self.trade_count,
                 'coin_cooldowns': self.coin_cooldowns,
                 'risk_off_until': self.risk_off_until,
+                'last_snapshot': self.last_snapshot,
                 'updated_at': time.time(),
             }
             tmp = self.state_path.with_suffix('.json.tmp')
@@ -943,6 +948,51 @@ class DCABot:
             logger.info(f"💰 DCA unrealisierter PnL aktualisiert: {updated} Trades (unrealized_pnl, Fees 0.8% roundtrip)")
             self._save_state()
 
+    async def equity(self) -> dict:
+        """Netto-Equity zum realistischen Verkauf am Bid inklusive Gebühren."""
+        from polybot import config
+
+        ticker = await fetch_ticker_data(list(self.portfolio.keys())) if self.portfolio else {}
+        mtm = 0.0
+        unrealized = 0.0
+        fee = config.CRYPTO_TAKER_FEE_RATE
+
+        for pair, pos in self.portfolio.items():
+            shares = float(pos.get("shares", 0.0))
+            entry_cost = float(pos.get("cost_basis", 0.0))
+            internal = PAIR_MAP.get(pair, pair)
+            data = ticker.get(internal) or ticker.get(pair)
+            if not data:
+                # Fehlende Kurse dürfen keinen künstlichen Equity-Einbruch erzeugen.
+                mtm += entry_cost
+                continue
+
+            last = float(data["c"][0])
+            bid, _ask = extract_quote(data, last)
+            current_value = shares * bid
+            buy_fee = entry_cost * fee
+            sell_fee = current_value * fee
+            net_value = current_value - buy_fee - sell_fee
+            mtm += net_value
+            unrealized += net_value - entry_cost
+
+        realized = await paper_db_module.get_realized_pnl_by_prefix("DCA_")
+        return {
+            "equity_eur": self.capital_remaining + mtm,
+            "cash_eur": self.capital_remaining,
+            "open_positions": len(self.portfolio),
+            "unrealized_pnl_eur": unrealized,
+            "realized_pnl_eur": realized,
+        }
+
+    async def maybe_snapshot(self, force: bool = False) -> None:
+        now = time.time()
+        if not force and now - self.last_snapshot < self.snapshot_interval_sec:
+            return
+        await paper_db_module.log_equity_snapshot("dca", **(await self.equity()))
+        self.last_snapshot = now
+        self._save_state()
+
 
     async def resolve_due_trades(self) -> list[dict]:
         """Schließt offene DCA-Trades bei TP/SL/Time-Exit und gibt Cash frei."""
@@ -1095,5 +1145,7 @@ class DCABot:
                     await self.update_paper_pnl()
                 except Exception as e:
                     logger.warning(f"DB-Log fehlgeschlagen: {e}")
+
+            await self.maybe_snapshot()
 
             await asyncio.sleep(60)  # Jede Minute prüfen
