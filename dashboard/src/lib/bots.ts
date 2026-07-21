@@ -185,7 +185,8 @@ async function fetchAllTrades(): Promise<RawTrade[]> {
 }
 
 async function fetchAllSnapshots(): Promise<RawSnapshot[]> {
-  return fetchTable<RawSnapshot>("equity_snapshots", "select=*&order=ts.asc&limit=20000");
+  const newestFirst = await fetchTable<RawSnapshot>("equity_snapshots", "select=*&order=ts.desc&limit=20000");
+  return newestFirst.reverse();
 }
 
 
