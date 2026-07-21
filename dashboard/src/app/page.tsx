@@ -187,7 +187,7 @@ export default async function OverviewPage() {
             </div>
             <h2 className="mt-3 font-heading text-2xl font-bold sm:text-3xl">Entwickle deinen eigenen Bot</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Stack-Sheet ausfüllen und hier wieder hochladen. Der Bot-Vorschlag wird sicher geprüft und anschließend in die Bot-Battle integriert.
+              Das Stack-Sheet ist der technische Steckbrief deines Bot-Vorschlags: Strategie, Risiko, Kostenmodell und Battle-Regeln in einer Datei. Ausfüllen, hier wieder hochladen und sicher prüfen lassen.
             </p>
             <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-muted-foreground">
               <span className="flex items-center gap-1.5">
