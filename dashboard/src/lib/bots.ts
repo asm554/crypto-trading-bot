@@ -224,16 +224,17 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const botSnaps = snapshots.filter((s) => s.bot === bot.key);
     const latestSnap = botSnaps[botSnaps.length - 1];
 
-    // Der neueste Snapshot ist die maßgebliche, zeitgleiche Bewertung. Die
-    // Trade-Summen bleiben der Fallback für Bots ohne Snapshot-Historie.
-    const unrealized = latestSnap
-      ? num(latestSnap.unrealized_pnl_eur)
-      : openTrades.reduce((s, t) => s + num(t.unrealized_pnl), 0);
-    const realized = latestSnap
-      ? num(latestSnap.realized_pnl_eur)
-      : doneTrades.reduce((s, t) => s + num(t.real_pnl), 0);
-
-    const equity = latestSnap ? num(latestSnap.equity_eur) : START_CAPITAL;
+    // Trade-Ledger und Trade-Tabelle verwenden dieselben PnL-Werte. So bleibt
+    // die Karte auch zwischen zwei Equity-Snapshots exakt nachvollziehbar.
+    const realized = doneTrades.reduce((sum, trade) => sum + num(trade.real_pnl), 0);
+    const hasCompleteOpenPnl = openTrades.every((trade) => trade.unrealized_pnl != null);
+    const unrealized = hasCompleteOpenPnl
+      ? openTrades.reduce((sum, trade) => sum + num(trade.unrealized_pnl), 0)
+      : latestSnap
+        ? num(latestSnap.unrealized_pnl_eur)
+        : 0;
+    const totalPnl = realized + unrealized;
+    const equity = START_CAPITAL + totalPnl;
     const cash = latestSnap ? num(latestSnap.cash_eur) : START_CAPITAL;
 
     const lastTradeTs = botTrades.reduce((max, t) => Math.max(max, num(t.timestamp)), 0);
@@ -244,7 +245,6 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const runtimeSnapshots = snapshots.filter((s) => s.bot === `__runtime_${bot.key}`);
     const runtime = runtimeSnapshots[runtimeSnapshots.length - 1];
 
-    const totalPnl = equity - START_CAPITAL;
     return {
       key: bot.key,
       name: bot.name,
@@ -252,7 +252,7 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       tagline: bot.tagline,
       equityEur: round2(equity),
       cashEur: round2(cash),
-      openPositions: latestSnap ? num(latestSnap.open_positions) : openTrades.length,
+      openPositions: openTrades.length,
       realizedPnlEur: round2(realized),
       unrealizedPnlEur: round2(unrealized),
       totalPnlEur: round2(totalPnl),
