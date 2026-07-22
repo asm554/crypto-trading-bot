@@ -43,7 +43,10 @@ class PumpFunPaperBot:
                  trailing_stop_pct=15.0, trail_floor_pct=15.0,
                  max_hold_sec=45 * 60, migrated_max_hold_sec=6 * 3600,
                  platform_fee_pct=1.0, migrated_slippage_pct=2.5,
-                 paper_mode=True, snapshot_interval_sec=3600):
+                 paper_mode=True, snapshot_interval_sec=3600,
+                 prefix=PREFIX, bot_key=BOT_KEY,
+                 state_filename="pumpfun_state.json",
+                 strategy_version="v2-curve-migration"):
         if not paper_mode:
             raise NotImplementedError("PumpFunPaperBot is paper-only")
         self.initial_capital_eur = float(initial_capital_eur)
@@ -74,7 +77,10 @@ class PumpFunPaperBot:
         self.platform_fee_pct = float(platform_fee_pct)
         self.migrated_slippage_pct = float(migrated_slippage_pct)
         self.snapshot_interval_sec = int(snapshot_interval_sec)
-        self.state_path = Path(paper_db_module.DB_PATH).resolve().parent / "pumpfun_state.json"
+        self.prefix = str(prefix)
+        self.bot_key = str(bot_key)
+        self.strategy_version = str(strategy_version)
+        self.state_path = Path(paper_db_module.DB_PATH).resolve().parent / state_filename
         self.portfolio = {}
         self.candidates = {}
         self.cooldowns = {}
@@ -100,7 +106,7 @@ class PumpFunPaperBot:
         payload = {"capital_remaining": round(self.capital_remaining, 8),
                    "portfolio": self.portfolio, "cooldowns": self.cooldowns,
                    "trade_count": self.trade_count, "updated_at": time.time(),
-                   "paper_only": True, "strategy_version": "v2-curve-migration"}
+                   "paper_only": True, "strategy_version": self.strategy_version}
         tmp = self.state_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
         tmp.replace(self.state_path)
@@ -223,7 +229,7 @@ class PumpFunPaperBot:
         if phase == PHASE_EARLY and not fill: return None
         if not fill:
             fill = {"shares": amount / max(mcap, 1e-9), "entry_price": 1.0, "sol_in": 0.0}
-        trade_id = await log_paper_trade(f"{PREFIX}{item['symbol']}@{mint}", "buy", fill["shares"], fill["entry_price"], change, "paper")
+        trade_id = await log_paper_trade(f"{self.prefix}{item['symbol']}@{mint}", "buy", fill["shares"], fill["entry_price"], change, "paper")
         self.capital_remaining -= amount
         self.portfolio[mint] = {"symbol": item["symbol"], "shares": fill["shares"], "cost_basis": amount,
             "entry_price": fill["entry_price"], "entry_ts": now, "entry_mcap": mcap,
@@ -273,13 +279,13 @@ class PumpFunPaperBot:
     async def maybe_snapshot(self, force=False):
         if not force and time.time() - self.last_snapshot < self.snapshot_interval_sec: return
         mtm = sum(float(p.get("mark_value", p["cost_basis"])) for p in self.portfolio.values())
-        realized = await paper_db_module.get_realized_pnl_by_prefix(PREFIX)
-        await log_equity_snapshot(BOT_KEY, self.capital_remaining + mtm, self.capital_remaining, len(self.portfolio), mtm - sum(float(p["cost_basis"]) for p in self.portfolio.values()), realized)
+        realized = await paper_db_module.get_realized_pnl_by_prefix(self.prefix)
+        await log_equity_snapshot(self.bot_key, self.capital_remaining + mtm, self.capital_remaining, len(self.portfolio), mtm - sum(float(p["cost_basis"]) for p in self.portfolio.values()), realized)
         self.last_snapshot = time.time(); self._save_state()
 
     async def run(self):
         await paper_db_module.init_db()
-        logger.info("PUMP v2 gestartet [PAPER] | early+ migrated | %.2f€ | NO WALLET / NO ORDERS", self.initial_capital_eur)
+        logger.info("PUMP %s gestartet [PAPER] | early+ migrated | %.2f€ | NO WALLET / NO ORDERS", self.strategy_version, self.initial_capital_eur)
         while True:
             try:
                 async with websockets.connect(WS_URL, ping_interval=20, open_timeout=20) as ws:

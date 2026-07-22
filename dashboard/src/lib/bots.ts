@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "surfer" | "scout" | "hodl";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl";
 
 type BotMeta = {
   key: BotKey;
@@ -68,6 +68,13 @@ export const BOTS: BotMeta[] = [
     nickname: "Der PumpFun",
     prefix: "PUMP_",
     tagline: "Verfolgt Pump.fun-Bonding-Curve-Events als separaten Paper-Trading-Bot.",
+  },
+  {
+    key: "pumpfun_v2",
+    name: "Pump.fun V2",
+    nickname: "Der PumpFun V2",
+    prefix: "PUMP2_",
+    tagline: "Chainstack-inspirierte, aktivere Pump.fun-Paper-Strategie ohne Wallet oder Live-Orders.",
   },
   {
     key: "surfer",
@@ -130,6 +137,7 @@ export type EquityPoint = {
   daytrade: number | null;
   memecoin: number | null;
   pumpfun: number | null;
+  pumpfun_v2: number | null;
   surfer: number | null;
   scout: number | null;
   hodl: number | null;
@@ -257,7 +265,7 @@ function toTradeRow(r: RawTrade): TradeRow {
   // Auflösung, da zwei dynamisch entdeckte Solana-Tokens denselben Namen
   // tragen können) — im Dashboard reicht das Symbol vor dem "@".
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
-  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
+  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
   return {
     id: r.id,
     botKey: meta?.key ?? "?",
@@ -291,7 +299,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, surfer: null, scout: null, hodl: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -442,6 +450,21 @@ export function getSettings(): SettingsView {
         { label: "Max. Haltedauer Early", value: "45 Min." },
         { label: "Max. Haltedauer migriert", value: "6 Std." },
         { label: "Max. offene Positionen", value: "2" },
+      ],
+    },
+    {
+      key: "pumpfun_v2",
+      name: "Pump.fun V2",
+      nickname: "Der PumpFun V2",
+      params: [
+        { label: "Datenquelle", value: "PumpPortal WebSocket" },
+        { label: "Modus", value: "100 % Paper-Trading" },
+        { label: "Positionsgröße", value: "10 €" },
+        { label: "Entry", value: "+3 % bis +60 % Momentum" },
+        { label: "Kaufdruck", value: "mindestens 1,05× Buy/Sell" },
+        { label: "Verlust-Bremse", value: "−18 %" },
+        { label: "Gewinnsicherung", value: "+25 %, Trailing 12 %" },
+        { label: "Max. offene Positionen", value: "3" },
       ],
     },
     {
