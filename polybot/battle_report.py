@@ -13,7 +13,7 @@ from polybot.alerts import send_telegram
 from polybot.dca_strategy import PAIR_MAP, extract_quote, fetch_ticker_data
 from polybot.memecoin_strategy import DEFAULT_DEX_FEE_PCT, DEFAULT_SLIPPAGE_PCT, EURUSD_INTERNAL, EURUSD_PAIR, FALLBACK_EUR_USD_RATE, fetch_pairs_by_address
 from polybot.scout_strategy import fetch_scout_prices
-from polybot.paper_db import DB_PATH, get_open_trades_by_prefix, init_db, log_equity_snapshot
+from polybot.paper_db import DB_PATH, get_open_trades_by_prefix, init_db, log_equity_snapshot, prefix_like_pattern
 
 DATA_DIR = Path(DB_PATH).resolve().parent
 META_PATH = DATA_DIR / "battle_meta.json"
@@ -191,7 +191,10 @@ def rows_for_bot(bot: str) -> list[tuple]:
 def trades_count(prefix: str) -> int:
     con = sqlite3.connect(DB_PATH, timeout=30.0)
     try:
-        return int(con.execute("SELECT count(*) FROM paper_trades WHERE market_question LIKE ?", (f"{prefix}%",)).fetchone()[0] or 0)
+        return int(con.execute(
+            "SELECT count(*) FROM paper_trades WHERE market_question LIKE ? ESCAPE '\\'",
+            (prefix_like_pattern(prefix),),
+        ).fetchone()[0] or 0)
     finally:
         con.close()
 
@@ -233,9 +236,9 @@ def longest_losing_streak(prefix: str) -> int:
     con = sqlite3.connect(DB_PATH, timeout=30.0)
     try:
         rows = con.execute(
-            "SELECT real_pnl FROM paper_trades WHERE market_question LIKE ? "
+            "SELECT real_pnl FROM paper_trades WHERE market_question LIKE ? ESCAPE '\\' "
             "AND resolved_at IS NOT NULL ORDER BY resolved_at ASC",
-            (f"{prefix}%",),
+            (prefix_like_pattern(prefix),),
         ).fetchall()
     finally:
         con.close()

@@ -42,7 +42,7 @@ class PumpFunV2PaperBot(PumpFunPaperBot):
             "prefix": "PUMP2_",
             "bot_key": "pumpfun_v2",
             "state_filename": "pumpfun_v2_state.json",
-            "strategy_version": "v3-chainstack-inspired-paper",
+            "strategy_version": "v2-chainstack-inspired-paper",
         }
         defaults.update(kwargs)
         super().__init__(**defaults)

@@ -456,6 +456,8 @@ export function getSettings(): SettingsView {
       key: "pumpfun_v2",
       name: "Pump.fun V2",
       nickname: "Der PumpFun V2",
+      purpose: "Beobachtet neue Pump.fun-Token aggressiver als V1 und sucht frühere Momentum-Einstiege.",
+      currentBehavior: "Handelt rein simuliert mit 10 €, verlangt mindestens fünf Trades und drei eindeutige Trader und hält frühe Positionen maximal 30 Minuten.",
       params: [
         { label: "Datenquelle", value: "PumpPortal WebSocket" },
         { label: "Modus", value: "100 % Paper-Trading" },
