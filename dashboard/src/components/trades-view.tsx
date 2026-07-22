@@ -25,7 +25,7 @@ import type { BotKey, TradeRow } from "@/lib/bots";
 type BotFilter = BotKey | "all";
 type StatusFilter = "all" | "open" | "resolved";
 
-const SIDE_LABEL: Record<string, string> = { buy: "Kauf", sell: "Verkauf" };
+const SIDE_LABEL: Record<string, string> = { buy: "Kauf", sell: "Verkauf", long: "Long", short: "Short" };
 
 export function TradesView({
   trades,

@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl" | "futures";
 
 type BotMeta = {
   key: BotKey;
@@ -91,6 +91,13 @@ export const BOTS: BotMeta[] = [
     tagline: "Beobachtet neue Solana-Pools 20 Minuten und handelt nur nach harten Sicherheits-, Aktivitaets- und Route-Checks.",
   },
   { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", prefix: "HODL_", tagline: "Investiert woechentlich regelbasiert in BTC, ETH und SOL und behaelt einen dauerhaften Kern." },
+  {
+    key: "futures",
+    name: "Perpetual Futures",
+    nickname: "Der Hebler",
+    prefix: "FUT_",
+    tagline: "Handelt bestätigte BTC-, ETH- und SOL-Trends long oder short mit konservativem 2× Paper-Hebel.",
+  },
 ];
 
 export type BotSummary = {
@@ -141,6 +148,7 @@ export type EquityPoint = {
   surfer: number | null;
   scout: number | null;
   hodl: number | null;
+  futures: number | null;
 };
 
 type RawTrade = {
@@ -265,13 +273,20 @@ function toTradeRow(r: RawTrade): TradeRow {
   // Auflösung, da zwei dynamisch entdeckte Solana-Tokens denselben Namen
   // tragen können) — im Dashboard reicht das Symbol vor dem "@".
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
-  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
+  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout"
+    ? rest.split("@")[0]
+    : meta?.key === "hodl"
+      ? rest.split("_")[0]
+      : meta?.key === "futures"
+        ? rest.replace(/^PF_XBTUSD$/, "BTC-PERP").replace(/^PF_ETHUSD$/, "ETH-PERP").replace(/^PF_SOLUSD$/, "SOL-PERP")
+        : rest;
+  const side = meta?.key === "futures" ? (r.side === "buy" ? "long" : "short") : r.side;
   return {
     id: r.id,
     botKey: meta?.key ?? "?",
     bot: meta?.nickname ?? "?",
     pair,
-    side: r.side,
+    side,
     sizeEur: round2(num(r.size) * num(r.price)),
     price: num(r.price),
     timestamp: num(r.timestamp),
@@ -299,7 +314,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null, futures: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -326,6 +341,7 @@ export function getSettings(): SettingsView {
   const fees: StrategyParam[] = [
     { label: "Gebühr pro Kauf/Verkauf", value: "0.40 %", hint: "Wird bei jedem Trade abgezogen (Kraken Taker)." },
     { label: "Gebühr (Maker)", value: "0.16 %", hint: "Falls als Maker gehandelt wird." },
+    { label: "Futures Taker", value: "0,05 % je Seite", hint: "Auf den gesamten Hebel-Nominalwert; Funding kommt zusätzlich hinzu." },
     { label: "Modus", value: "Papierhandel", hint: "Es wird kein echtes Geld eingesetzt." },
     { label: "Startkapital je Bot", value: `${START_CAPITAL} €` },
   ];
@@ -518,6 +534,27 @@ export function getSettings(): SettingsView {
       { label: "Gewinnmitnahme", value: "25 % bei +100 %, 25 % bei +200 %; Kern bleibt" },
       { label: "Stops", value: "kein normaler Stop-Loss" },
     ] },
+    {
+      key: "futures",
+      name: "Perpetual Futures",
+      nickname: "Der Hebler",
+      purpose: "Nutzt steigende und fallende Trends, ohne Coins zu besitzen, und bildet dabei Margin, Funding und Liquidationsrisiko ab.",
+      currentBehavior: "Handelt nur BTC-, ETH- und SOL-Perpetuals mit 2× Hebel; ein 9/21-EMA-Trend muss durch das 6-Stunden-Momentum bestätigt sein.",
+      params: [
+        { label: "Modus", value: "100 % Paper-Trading" },
+        { label: "Märkte", value: "BTC, ETH, SOL Perpetual" },
+        { label: "Richtung", value: "Long und Short" },
+        { label: "Hebel", value: "2×", hint: "Im Code hart auf maximal 3× begrenzt." },
+        { label: "Margin pro Position", value: "20 €" },
+        { label: "Max. offene Positionen", value: "2" },
+        { label: "Signal", value: "EMA 9/21 + 6h-Momentum" },
+        { label: "Verlust-Bremse", value: "−2 % Kursbewegung" },
+        { label: "Gewinnsicherung", value: "Trailing ab +2 %, Ziel +5 %" },
+        { label: "Max. Haltedauer", value: "24 Std." },
+        { label: "Kosten", value: "0,05 % je Seite + Funding" },
+        { label: "Kontosperre", value: "bei −5 % Netto-Equity" },
+      ],
+    },
   ];
 
   return { fees, strategies };

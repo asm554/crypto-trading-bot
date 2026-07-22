@@ -17,6 +17,7 @@
   --color-bot-arb: var(--bot-arb);
   --color-bot-daytrade: var(--bot-daytrade);
   --color-bot-memecoin: var(--bot-memecoin);
+  --color-bot-futures: var(--bot-futures);
   --color-up: var(--up);
   --color-down: var(--down);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -141,6 +142,7 @@
   --bot-surfer: oklch(0.73 0.16 100);
   --bot-scout: oklch(0.72 0.15 20);
   --bot-hodl: oklch(0.72 0.14 285);
+  --bot-futures: oklch(0.76 0.17 48);
   --up: oklch(0.78 0.16 160);
   --down: oklch(0.68 0.2 25);
 }
