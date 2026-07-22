@@ -601,6 +601,7 @@ class FuturesPaperBot:
             eur_usd_rate = await fetch_eur_usd_rate()
         open_value = 0.0
         unrealized = 0.0
+        trade_pnls: dict[int, float] = {}
         for symbol, position in self.portfolio.items():
             value, pnl = position_mark_to_market(
                 position,
@@ -610,6 +611,8 @@ class FuturesPaperBot:
             )
             open_value += value
             unrealized += pnl
+            trade_pnls[int(position["trade_id"])] = pnl
+        await paper_db_module.update_unrealized_pnls(trade_pnls)
         realized = await paper_db_module.get_realized_pnl_by_prefix(PREFIX)
         return {
             "equity_eur": self.capital_remaining + open_value,
@@ -632,11 +635,12 @@ class FuturesPaperBot:
             "Futures bot started [PAPER] | budget %.2f EUR | leverage %.1fx | symbols %s",
             self.initial_capital_eur, self.leverage, ",".join(self.symbols),
         )
+        await self.maybe_snapshot(force=True)
         while True:
             try:
-                await self.manage_positions()
-                await self.scan_entries()
-                await self.maybe_snapshot()
+                resolved = await self.manage_positions()
+                opened = await self.scan_entries()
+                await self.maybe_snapshot(force=bool(resolved or opened))
             except Exception as exc:
                 logger.exception("Futures loop error (%s); retrying in 30s", exc)
                 await asyncio.sleep(30)

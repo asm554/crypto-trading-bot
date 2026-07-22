@@ -128,6 +128,7 @@ export type TradeRow = {
   pair: string;
   side: string;
   sizeEur: number;
+  amountIsNotional: boolean;
   price: number;
   timestamp: number;
   status: string;
@@ -288,11 +289,14 @@ function toTradeRow(r: RawTrade): TradeRow {
     pair,
     side,
     sizeEur: round2(num(r.size) * num(r.price)),
+    amountIsNotional: meta?.key === "futures",
     price: num(r.price),
     timestamp: num(r.timestamp),
     status: r.status,
     resolved: r.resolved_at != null,
-    pnlEur: r.real_pnl == null ? null : round2(num(r.real_pnl)),
+    pnlEur: r.resolved_at != null
+      ? (r.real_pnl == null ? null : round2(num(r.real_pnl)))
+      : (r.unrealized_pnl == null ? null : round2(num(r.unrealized_pnl))),
   };
 }
 

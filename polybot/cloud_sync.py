@@ -224,7 +224,10 @@ async def sync_once() -> dict:
             "exit_price, resolved_at, real_pnl, unrealized_pnl FROM paper_trades"
         ) as cur:
             async for row in cur:
-                trades.append(dict(row))
+                trade = dict(row)
+                if trade["resolved_at"] is not None:
+                    trade["unrealized_pnl"] = None
+                trades.append(trade)
         async with db.execute(
             "SELECT id, bot, ts, equity_eur, cash_eur, open_positions, unrealized_pnl_eur, realized_pnl_eur "
             "FROM equity_snapshots"
