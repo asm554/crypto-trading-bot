@@ -1,0 +1,37 @@
+[Unit]
+Description=Polybot Pump.fun V2 — Chainstack-inspired Paper Trading Only
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/crypto-trading-bot
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_pumpfun_v2
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+Environment=PUMP2_BUDGET=100
+Environment=PUMP2_POSITION_EUR=10
+Environment=PUMP2_MAX_OPEN_POSITIONS=3
+Environment=PUMP2_MIN_AGE_SEC=15
+Environment=PUMP2_MAX_AGE_SEC=3600
+Environment=PUMP2_MIN_MARKET_CAP_SOL=8
+Environment=PUMP2_MAX_MARKET_CAP_SOL=800
+Environment=PUMP2_MIN_CHANGE_PCT=3
+Environment=PUMP2_MAX_CHANGE_PCT=60
+Environment=PUMP2_MIN_TRADES=5
+Environment=PUMP2_MIN_UNIQUE_TRADERS=3
+Environment=PUMP2_MIN_RECENT_CHANGE_PCT=1.0
+Environment=PUMP2_MIN_BUY_SELL_RATIO=1.05
+Environment=PUMP2_STOP_LOSS_PCT=18
+Environment=PUMP2_TAKE_PROFIT_PCT=25
+Environment=PUMP2_TRAILING_STOP_PCT=12
+Environment=PUMP2_TRAIL_FLOOR_PCT=10
+Environment=PUMP2_MAX_HOLD_SEC=1800
+Environment=PUMP2_SLIPPAGE_PCT=3
+Environment=PUMP2_PLATFORM_FEE_PCT=1
+Environment=PUMP2_PAPER_MODE=true
+
+[Install]
+WantedBy=multi-user.target

@@ -27,6 +27,7 @@ BOTS = {
     "daytrade": {"label": "Der Zappler", "prefix": "DAY_", "state": DATA_DIR / "daytrade_state.json"},
     "memecoin": {"label": "Der Onchain", "prefix": "CHAIN_", "state": DATA_DIR / "memecoin_state.json"},
     "pumpfun": {"label": "Der PumpFun", "prefix": "PUMP_", "state": DATA_DIR / "pumpfun_state.json"},
+    "pumpfun_v2": {"label": "PumpFun V2", "prefix": "PUMP2_", "state": DATA_DIR / "pumpfun_v2_state.json"},
     "surfer": {"label": "Der Surfer", "prefix": "SURF_", "state": DATA_DIR / "surfer_state.json"},
     "scout": {"label": "Der Spaeher", "prefix": "SCOUT_", "state": DATA_DIR / "scout_state.json"},
     "hodl": {"label": "Der HODLer", "prefix": "HODL_", "state": DATA_DIR / "hodl_state.json"},
@@ -276,7 +277,7 @@ async def build_report() -> str:
     for bot, cfg in BOTS.items():
         if bot == "memecoin":
             snaps[bot] = await equity_for_memecoin(cfg["prefix"], cfg["state"], bot)
-        elif bot == "pumpfun":
+        elif bot in {"pumpfun", "pumpfun_v2"}:
             snaps[bot] = await equity_for_pumpfun(cfg["prefix"], cfg["state"], bot)
         elif bot == "scout":
             snaps[bot] = await equity_for_scout(cfg["prefix"], cfg["state"], bot)
@@ -293,7 +294,7 @@ async def build_report() -> str:
     lines.append("")
     lines.append("```")
     lines.append("           Equity   offen  real.PnL  Trades  MaxDD  UW(h)  Serie")
-    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "surfer", "scout", "hodl"]:
+    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "scout", "hodl"]:
         cfg = BOTS[bot]
         s = snaps[bot]
         rows = rows_for_bot(bot)
