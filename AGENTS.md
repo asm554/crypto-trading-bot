@@ -95,6 +95,8 @@ Run a single test file/case: `python -m pytest tests/test_arb_strategy.py -q` or
 
 ## Collaboration
 
+- Das Dashboard ist Bestandteil jedes Deployments: Bei Änderungen an Bots, Freqtrade, Datenfluss oder Dashboard muss das Dashboard mitgebaut, geprüft und anschließend ebenfalls auf dem Server aktualisiert/deployed werden. Ein Backend- oder Bot-Deployment ohne anschließendes Dashboard-Deployment gilt nicht als abgeschlossen.
+
 Use feature branches and pull requests for strategy changes. Include:
 
 - what changed
