@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "freqtrade" | "surfer" | "scout" | "hodl";
 
 type BotMeta = {
   key: BotKey;
@@ -17,6 +17,7 @@ type BotMeta = {
   nickname: string;
   prefix: string;
   tagline: string;
+  startCapital?: number;
 };
 
 export const BOTS: BotMeta[] = [
@@ -93,6 +94,15 @@ export const BOTS: BotMeta[] = [
   { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", prefix: "HODL_", tagline: "Investiert woechentlich regelbasiert in BTC, ETH und SOL und behaelt einen dauerhaften Kern." },
 ];
 
+export const FREQTRADE_META = {
+  key: "freqtrade" as BotKey,
+  name: "Freqtrade",
+  nickname: "Der Freqtrade",
+  prefix: "FT_",
+  startCapital: 1000,
+  tagline: "Freqtrade Paper-Trading, read-only aus der lokalen API gespiegelt.",
+};
+
 export type BotSummary = {
   key: BotKey;
   name: string;
@@ -137,6 +147,7 @@ export type EquityPoint = {
   memecoin: number | null;
   pumpfun: number | null;
   pumpfun_v2: number | null;
+  freqtrade: number | null;
   surfer: number | null;
   scout: number | null;
   hodl: number | null;
@@ -233,7 +244,8 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const runtimeSnapshots = snapshots.filter((s) => s.bot === `__runtime_${bot.key}`);
     const runtime = runtimeSnapshots[runtimeSnapshots.length - 1];
 
-    const totalPnl = equity - START_CAPITAL;
+    const startCapital = bot.startCapital ?? START_CAPITAL;
+    const totalPnl = equity - startCapital;
     return {
       key: bot.key,
       name: bot.name,
@@ -245,7 +257,7 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       realizedPnlEur: round2(realized),
       unrealizedPnlEur: round2(unrealized),
       totalPnlEur: round2(totalPnl),
-      pnlPct: round2((totalPnl / START_CAPITAL) * 100),
+      pnlPct: round2((totalPnl / startCapital) * 100),
       tradeCount: botTrades.length,
       startedAt: Number.isFinite(startedAt) ? startedAt : null,
       lastActivity,
@@ -296,7 +308,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, freqtrade: null, surfer: null, scout: null, hodl: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -444,6 +456,19 @@ export function getSettings(): SettingsView {
       ],
     },
     {
+      key: "freqtrade",
+      name: "Freqtrade",
+      nickname: "Der Freqtrade",
+      params: [
+        { label: "Quelle", value: "Lokale Freqtrade-API" },
+        { label: "Modus", value: "Dry-Run / Paper-Trading" },
+        { label: "Paper-Kapital", value: "1.000 €" },
+        { label: "Stake-Größe", value: "100 €" },
+        { label: "Max. offene Trades", value: "3" },
+        { label: "Dashboard-Sync", value: "alle 30 Sek.", hint: "Read-only: keine Steuerbefehle aus dem Dashboard." },
+      ],
+    },
+    {
       key: "surfer",
       name: "Trend/Breakout",
       nickname: "Der Surfer",
@@ -492,4 +517,54 @@ export function getSettings(): SettingsView {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+
+export async function getFreqtradeSummary(): Promise<BotSummary> {
+  const [trades, snapshots] = await Promise.all([fetchAllTrades(), fetchAllSnapshots()]);
+  const bot = FREQTRADE_META;
+  const botTrades = trades.filter((t) => t.market_question.startsWith(bot.prefix));
+  const openTrades = botTrades.filter((t) => t.resolved_at == null);
+  const doneTrades = botTrades.filter((t) => t.resolved_at != null);
+  const botSnaps = snapshots.filter((s) => s.bot === bot.key);
+  const latestSnap = botSnaps[botSnaps.length - 1];
+  const unrealized = latestSnap ? num(latestSnap.unrealized_pnl_eur) : openTrades.reduce((sum, t) => sum + num(t.unrealized_pnl), 0);
+  const realized = latestSnap ? num(latestSnap.realized_pnl_eur) : doneTrades.reduce((sum, t) => sum + num(t.real_pnl), 0);
+  const startCapital = bot.startCapital;
+  const equity = latestSnap ? num(latestSnap.equity_eur) : startCapital;
+  const cash = latestSnap ? num(latestSnap.cash_eur) : startCapital;
+  const lastTradeTs = botTrades.reduce((max, t) => Math.max(max, num(t.timestamp)), 0);
+  const lastActivity = Math.max(lastTradeTs, latestSnap ? num(latestSnap.ts) : 0) || null;
+  const firstTradeTs = botTrades.reduce((min, t) => Math.min(min, num(t.timestamp)), Infinity);
+  const firstSnapshotTs = botSnaps.reduce((min, s) => Math.min(min, num(s.ts)), Infinity);
+  const startedAt = Math.min(firstTradeTs, firstSnapshotTs);
+  const runtimeSnapshots = snapshots.filter((s) => s.bot === "__runtime_freqtrade");
+  const runtime = runtimeSnapshots[runtimeSnapshots.length - 1];
+  const totalPnl = equity - startCapital;
+  return {
+    key: bot.key, name: bot.name, nickname: bot.nickname, tagline: bot.tagline,
+    equityEur: round2(equity), cashEur: round2(cash),
+    openPositions: latestSnap ? num(latestSnap.open_positions) : openTrades.length,
+    realizedPnlEur: round2(realized), unrealizedPnlEur: round2(unrealized),
+    totalPnlEur: round2(totalPnl), pnlPct: round2((totalPnl / startCapital) * 100),
+    tradeCount: botTrades.length,
+    startedAt: Number.isFinite(startedAt) ? startedAt : null,
+    lastActivity, runtimeStartedAt: runtime ? num(runtime.ts) : null,
+    runtimeStatus: runtime ? "running" : null,
+    hasData: botTrades.length > 0 || botSnaps.length > 0,
+  };
+}
+
+export async function getFreqtradeTrades(): Promise<TradeRow[]> {
+  return (await fetchAllTrades()).filter((t) => t.market_question.startsWith("FT_")).map(toTradeRow);
+}
+
+export async function getFreqtradeEquitySeries(): Promise<EquityPoint[]> {
+  const snapshots = await fetchAllSnapshots();
+  const byTime = new Map<number, EquityPoint>();
+  for (const r of snapshots.filter((s) => s.bot === "freqtrade")) {
+    const bucket = Math.round(num(r.ts) / 60) * 60;
+    byTime.set(bucket, { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, freqtrade: num(r.equity_eur), surfer: null, scout: null, hodl: null });
+  }
+  return Array.from(byTime.values()).sort((a, b) => a.t - b.t);
 }

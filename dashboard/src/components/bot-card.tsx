@@ -77,6 +77,16 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
         </div>
       </CardHeader>
 
+      <div className="px-6 pb-4">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-xs text-muted-foreground">30-Trades-Fortschritt</span>
+          <span className="font-mono text-xs font-semibold tabular-nums">{Math.min(bot.tradeCount, 30)} / 30</span>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary" role="progressbar" aria-label={`${Math.min(bot.tradeCount, 30)} von 30 Trades`} aria-valuemin={0} aria-valuemax={30} aria-valuenow={Math.min(bot.tradeCount, 30)}>
+          <div className="h-full rounded-full transition-all" style={{ width: `${Math.min((bot.tradeCount / 30) * 100, 100)}%`, background: botColor }} />
+        </div>
+      </div>
+
       <Separator />
 
       <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 py-4 sm:grid-cols-4">

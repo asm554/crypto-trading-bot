@@ -242,6 +242,12 @@ async def resolve_trade(trade_id: int, exit_price: float, real_pnl: float):
     logger.info(f"✅ Trade #{trade_id} aufgelöst: exit={exit_price:.4f} pnl={real_pnl:+.4f}$")
 
 
+def prefix_like_pattern(prefix: str) -> str:
+    """Build an escaped SQL LIKE pattern that treats a bot prefix literally."""
+    escaped = str(prefix).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"{escaped}%"
+
+
 async def get_open_trades_by_prefix(prefix: str) -> list[dict]:
     """Gibt offene Paper-Trades mit Prefix zurück, z.B. DCA_, MOM_, REV_."""
     aiosqlite = _require_aiosqlite()
@@ -249,8 +255,8 @@ async def get_open_trades_by_prefix(prefix: str) -> list[dict]:
     async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
         async with db.execute(
             "SELECT id, timestamp, market_question, side, size, price, edge_percent, status FROM paper_trades "
-            "WHERE market_question LIKE ? AND resolved_at IS NULL ORDER BY id ASC",
-            (f"{prefix}%",),
+            "WHERE market_question LIKE ? ESCAPE '\\' AND resolved_at IS NULL ORDER BY id ASC",
+            (prefix_like_pattern(prefix),),
         ) as cursor:
             async for row in cursor:
                 rows.append({
@@ -271,8 +277,9 @@ async def get_realized_pnl_by_prefix(prefix: str) -> float:
     aiosqlite = _require_aiosqlite()
     async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
         async with db.execute(
-            "SELECT SUM(COALESCE(real_pnl,0)) FROM paper_trades WHERE market_question LIKE ? AND resolved_at IS NOT NULL",
-            (f"{prefix}%",),
+            "SELECT SUM(COALESCE(real_pnl,0)) FROM paper_trades "
+            "WHERE market_question LIKE ? ESCAPE '\\' AND resolved_at IS NOT NULL",
+            (prefix_like_pattern(prefix),),
         ) as cursor:
             row = await cursor.fetchone()
     return float((row[0] if row else 0.0) or 0.0)
