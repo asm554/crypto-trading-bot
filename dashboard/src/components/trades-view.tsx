@@ -25,7 +25,7 @@ import type { BotKey, TradeRow } from "@/lib/bots";
 type BotFilter = BotKey | "all";
 type StatusFilter = "all" | "open" | "resolved";
 
-const SIDE_LABEL: Record<string, string> = { buy: "Kauf", sell: "Verkauf" };
+const SIDE_LABEL: Record<string, string> = { buy: "Kauf", sell: "Verkauf", long: "Long", short: "Short" };
 
 export function TradesView({
   trades,
@@ -113,7 +113,9 @@ export function TradesView({
                 <TableCell className="text-muted-foreground">
                   {SIDE_LABEL[t.side] ?? t.side}
                 </TableCell>
-                <TableCell className="text-right font-mono tabular-nums">{eur(t.sizeEur)}</TableCell>
+                <TableCell className="text-right font-mono tabular-nums">
+                  {eur(t.sizeEur)}{t.amountIsNotional && <span className="ml-1 text-[10px] text-muted-foreground">Nominal</span>}
+                </TableCell>
                 <TableCell>
                   <Badge variant={t.resolved ? "outline" : "secondary"} className="text-xs">
                     {t.resolved ? "geschlossen" : "offen"}
@@ -134,7 +136,8 @@ export function TradesView({
       )}
 
       <p className="text-xs text-muted-foreground">
-        {filtered.length} von {trades.length} Trades angezeigt.
+        {filtered.length} von {trades.length} Positionen angezeigt. Eine Zeile reicht vom Einstieg bis zum Ausstieg;
+        bei Futures ist der Betrag der gehebelte Nominalwert.
       </p>
     </div>
   );

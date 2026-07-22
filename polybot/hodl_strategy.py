@@ -114,13 +114,14 @@ class HodlBot:
         self.weekly_spend[week] = spent + sum(item["amount"] for item in opened); self._save(); return opened
 
     async def equity(self):
-        pairs = sorted({pos["pair"] for pos in self.portfolio.values()}); ticker = await fetch_ticker_data(pairs) if pairs else {}; fee = config.CRYPTO_TAKER_FEE_RATE; mtm = unrealized = 0.
+        pairs = sorted({pos["pair"] for pos in self.portfolio.values()}); ticker = await fetch_ticker_data(pairs) if pairs else {}; fee = config.CRYPTO_TAKER_FEE_RATE; mtm = unrealized = 0.; trade_pnls = {}
         for pos in self.portfolio.values():
             cost = float(pos["cost_basis"]); data = ticker.get(PAIR_MAP.get(pos["pair"], pos["pair"])) or ticker.get(pos["pair"])
             if not data: value = cost
             else:
                 bid, _ = extract_quote(data, float(data["c"][0])); value = float(pos["shares"]) * bid * (1 - fee)
-            mtm += value; unrealized += value - cost
+            position_pnl = value - cost; mtm += value; unrealized += position_pnl; trade_pnls[int(pos["trade_id"])] = position_pnl
+        await paper_db_module.update_unrealized_pnls(trade_pnls)
         realized = await paper_db_module.get_realized_pnl_by_prefix(PREFIX)
         return {"equity_eur": self.capital_remaining + mtm, "cash_eur": self.capital_remaining, "open_positions": len(self.portfolio), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
 
@@ -129,7 +130,9 @@ class HodlBot:
         await log_equity_snapshot(BOT_KEY, **await self.equity()); self.last_snapshot = time.time(); self._save()
     async def run(self):
         logger.info("HODLer gestartet [PAPER] | Budget %.2f EUR", self.initial_capital_eur)
+        await self.maybe_snapshot(force=True)
         while True:
-            try: await self.manage_positions(); await self.scan_entries(); await self.maybe_snapshot()
+            try:
+                await self.manage_positions(); opened = await self.scan_entries(); await self.maybe_snapshot(force=bool(opened))
             except Exception: logger.exception("HODLer loop error")
             await asyncio.sleep(60)

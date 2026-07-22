@@ -36,6 +36,9 @@ polybot/data/
 .vscode/
 .idea/
 
+# External tool checkouts
+freqtrade/
+
 # Node / Next.js (Dashboard)
 node_modules/
 .next/

@@ -156,7 +156,9 @@ export default async function OverviewPage() {
                       </span>
                     </TableCell>
                     <TableCell className="font-mono">{t.pair}</TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">{eur(t.sizeEur)}</TableCell>
+                    <TableCell className="text-right font-mono tabular-nums">
+                      {eur(t.sizeEur)}{t.amountIsNotional && <span className="ml-1 text-[10px] text-muted-foreground">Nominal</span>}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={t.resolved ? "outline" : "secondary"} className="text-xs">
                         {t.resolved ? "geschlossen" : "offen"}

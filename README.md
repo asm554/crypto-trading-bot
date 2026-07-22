@@ -14,6 +14,8 @@ Kerncode im aktiven Hauptbaum:
   **Der Zocker** — Momentum + Trailing Stop, hart Paper-only.
 - `polybot/meanrev_strategy.py` + `polybot/main_meanrev.py`  
   **Der Contrarian** — Mean-Reversion mit RSI/OHLC, hart Paper-only.
+- `polybot/futures_strategy.py` + `polybot/main_futures.py`
+  **Der Hebler** — Kraken Perpetual Futures long/short mit 2× Paper-Hebel, Funding und Liquidationsmodell.
 - `polybot/battle_report.py`  
   Telegram Battle-Report nach Netto-Equity.
 - `polybot/paper_db.py`  
@@ -66,6 +68,9 @@ python -m polybot.main_momentum
 # Mean-Reversion Bot
 python -m polybot.main_meanrev
 
+# Perpetual-Futures Bot (paper-only)
+python -m polybot.main_futures
+
 # Battle-Report manuell
 python -m polybot.battle_report
 ```
@@ -96,6 +101,9 @@ Passe vorher unbedingt `WorkingDirectory` und `ExecStart` an deinen Installation
 python -m py_compile polybot/dca_strategy.py polybot/main_dca.py polybot/momentum_strategy.py polybot/main_momentum.py polybot/meanrev_strategy.py polybot/main_meanrev.py polybot/battle_report.py
 python -m pytest -q
 ```
+
+Die technische und regulatorische Futures-Analyse steht unter
+[`docs/futures-trading-analysis.md`](docs/futures-trading-analysis.md).
 
 ## Strategie-Battle KPI
 

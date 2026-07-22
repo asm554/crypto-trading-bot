@@ -1,0 +1,17 @@
+[Unit]
+Description=Freqtrade Paper Trading Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/crypto-trading-bot/freqtrade
+ExecStart=/root/crypto-trading-bot/freqtrade/.venv/bin/freqtrade trade --config /root/crypto-trading-bot/freqtrade/user_data/config.paper.json --strategy SampleStrategy
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

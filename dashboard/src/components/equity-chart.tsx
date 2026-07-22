@@ -24,6 +24,7 @@ const config = {
   surfer: { label: "Der Surfer", color: "var(--bot-surfer)" },
   scout: { label: "Der Spaeher", color: "var(--bot-scout)" },
   hodl: { label: "Der HODLer", color: "var(--bot-hodl)" },
+  futures: { label: "Der Hebler", color: "var(--bot-futures)" },
 } satisfies ChartConfig;
 
 // Bei 6 Linien reicht Farbe allein nicht (Farbfehlsichtigkeit) — jede Linie
@@ -40,6 +41,7 @@ const DASH: Record<keyof typeof config, string | undefined> = {
   surfer: "12 3",
   scout: "4 2 1 2",
   hodl: "14 2",
+  futures: "7 2 1 2",
 };
 
 export function EquityChart({ data }: { data: EquityPoint[] }) {

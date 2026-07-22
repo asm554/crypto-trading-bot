@@ -9,6 +9,7 @@ from polybot.meanrev_strategy import MeanRevBot
 from polybot.memecoin_strategy import MemecoinMomentumBot
 from polybot.momentum_strategy import MomentumBot
 from polybot.surfer_strategy import SurferBot
+from polybot.futures_strategy import FuturesPaperBot
 
 
 @pytest.mark.parametrize(
@@ -20,6 +21,7 @@ from polybot.surfer_strategy import SurferBot
         ("daytrade_state.json", lambda: DaytradeBot(paper_mode=True)),
         ("memecoin_state.json", lambda: MemecoinMomentumBot(paper_mode=True)),
         ("surfer_state.json", lambda: SurferBot(paper_mode=True)),
+        ("futures_state.json", lambda: FuturesPaperBot(paper_mode=True)),
     ],
 )
 def test_restored_cash_keeps_realized_profit(monkeypatch, tmp_path, state_name, factory):
