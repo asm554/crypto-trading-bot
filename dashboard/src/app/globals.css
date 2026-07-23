@@ -134,6 +134,7 @@
   --bot-meanrev: oklch(0.7 0.16 320);
   --bot-arb: oklch(0.72 0.17 145);
   --bot-daytrade: oklch(0.68 0.2 25);
+  --bot-futures: oklch(0.76 0.16 55);
   --bot-memecoin: oklch(0.72 0.15 195);
   --bot-pumpfun: oklch(0.72 0.18 325);
   --bot-freqtrade: oklch(0.74 0.16 45);

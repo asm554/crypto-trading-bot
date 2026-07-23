@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "freqtrade" | "surfer" | "scout" | "hodl";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "freqtrade" | "futures" | "surfer" | "scout" | "hodl";
 
 type BotMeta = {
   key: BotKey;
@@ -55,6 +55,13 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Zappler",
     prefix: "DAY_",
     tagline: "Handelt kurzfristige Kursausschläge, nie länger als ein paar Stunden.",
+  },
+  {
+    key: "futures",
+    name: "Futures",
+    nickname: "Der Hebler",
+    prefix: "FUT_",
+    tagline: "Paper-Futures mit begrenztem Hebel und kostenbewussten Exits.",
   },
   {
     key: "memecoin",
@@ -144,6 +151,7 @@ export type EquityPoint = {
   meanrev: number | null;
   arb: number | null;
   daytrade: number | null;
+  futures: number | null;
   memecoin: number | null;
   pumpfun: number | null;
   pumpfun_v2: number | null;
@@ -313,7 +321,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, freqtrade: null, surfer: null, scout: null, hodl: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, futures: null, memecoin: null, pumpfun: null, pumpfun_v2: null, freqtrade: null, surfer: null, scout: null, hodl: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -569,7 +577,7 @@ export async function getFreqtradeEquitySeries(): Promise<EquityPoint[]> {
   const byTime = new Map<number, EquityPoint>();
   for (const r of snapshots.filter((s) => s.bot === "freqtrade")) {
     const bucket = Math.round(num(r.ts) / 60) * 60;
-    byTime.set(bucket, { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, freqtrade: num(r.equity_eur), surfer: null, scout: null, hodl: null });
+    byTime.set(bucket, { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, freqtrade: num(r.equity_eur), futures: null, surfer: null, scout: null, hodl: null });
   }
   return Array.from(byTime.values()).sort((a, b) => a.t - b.t);
 }
