@@ -85,7 +85,10 @@ Passe vorher unbedingt `WorkingDirectory` und `ExecStart` an deinen Installation
 ### Dashboard und HODLer separat betreiben
 
 Der HODLer läuft als eigener, paper-only systemd-Dienst. Das Dashboard läuft als
-separater Next.js-Produktionsdienst und wird über Nginx auf Port 3100 veröffentlicht:
+separater Next.js-Produktionsdienst auf Port 3100. Caddy veröffentlicht es aktuell
+direkt über die Server-IP `http://72.61.83.238/`; eine Subdomain kann später ergänzt werden.
+
+Für einen Nginx-basierten Serverbetrieb:
 
 ```bash
 sudo cp systemd/polybot-hodl.service.example /etc/systemd/system/polybot-hodl.service
