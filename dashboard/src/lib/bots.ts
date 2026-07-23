@@ -7,8 +7,6 @@ import "server-only";
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
-const START_CAPITAL = 100; // Startkapital pro Bot (€)
-
 export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl" | "freqtrade" | "futures";
 
 type BotMeta = {
@@ -17,6 +15,7 @@ type BotMeta = {
   nickname: string;
   prefix: string;
   tagline: string;
+  startingCapitalEur: number;
 };
 
 export const BOTS: BotMeta[] = [
@@ -26,6 +25,7 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Brave",
     prefix: "DCA_",
     tagline: "Kauft regelmäßig kleine Beträge und sitzt Rücksetzer aus.",
+    startingCapitalEur: 100,
   },
   {
     key: "momentum",
@@ -33,6 +33,7 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Zocker",
     prefix: "MOM_",
     tagline: "Springt auf Coins auf, die gerade stark steigen.",
+    startingCapitalEur: 100,
   },
   {
     key: "meanrev",
@@ -40,6 +41,7 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Contrarian",
     prefix: "REV_",
     tagline: "Kauft stark gefallene Coins in der Hoffnung auf Erholung.",
+    startingCapitalEur: 100,
   },
   {
     key: "arb",
@@ -47,6 +49,7 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Pedant",
     prefix: "ARB_",
     tagline: "Sucht risikofreie Rundungsgewinne im EUR-BTC-ETH-Dreieck.",
+    startingCapitalEur: 100,
   },
   {
     key: "daytrade",
@@ -54,6 +57,7 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Zappler",
     prefix: "DAY_",
     tagline: "Handelt kurzfristige Kursausschläge, nie länger als ein paar Stunden.",
+    startingCapitalEur: 100,
   },
   {
     key: "memecoin",
@@ -61,6 +65,7 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Onchain",
     prefix: "CHAIN_",
     tagline: "Springt früh auf stark steigende Solana-Memecoins auf und nimmt den Gewinn bei rund +15 % mit.",
+    startingCapitalEur: 100,
   },
   {
     key: "pumpfun",
@@ -68,6 +73,7 @@ export const BOTS: BotMeta[] = [
     nickname: "Der PumpFun",
     prefix: "PUMP_",
     tagline: "Verfolgt Pump.fun-Bonding-Curve-Events als separaten Paper-Trading-Bot.",
+    startingCapitalEur: 100,
   },
   {
     key: "pumpfun_v2",
@@ -75,6 +81,7 @@ export const BOTS: BotMeta[] = [
     nickname: "Der PumpFun V2",
     prefix: "PUMP2_",
     tagline: "Chainstack-inspirierte, aktivere Pump.fun-Paper-Strategie ohne Wallet oder Live-Orders.",
+    startingCapitalEur: 100,
   },
   {
     key: "surfer",
@@ -82,6 +89,7 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Surfer",
     prefix: "SURF_",
     tagline: "Reitet bestätigte SOL/EUR-Trends: 4h-Aufwärtstrend, EMA20 über EMA50 und ein 20h-Ausbruch müssen zusammenkommen.",
+    startingCapitalEur: 100,
   },
   {
     key: "scout",
@@ -89,10 +97,11 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Spaeher",
     prefix: "SCOUT_",
     tagline: "Beobachtet neue Solana-Pools 20 Minuten und handelt nur nach harten Sicherheits-, Aktivitaets- und Route-Checks.",
+    startingCapitalEur: 100,
   },
-  { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", prefix: "HODL_", tagline: "Investiert woechentlich regelbasiert in BTC, ETH und SOL und behaelt einen dauerhaften Kern." },
-  { key: "freqtrade", name: "Freqtrade", nickname: "Freqtrade", prefix: "FT_", tagline: "Read-only Paper-Trading-Daten aus der separaten Freqtrade-Instanz." },
-  { key: "futures", name: "Futures", nickname: "Der Hebler", prefix: "FUT_", tagline: "Paper-Trading mit Kraken Futures und begrenztem Hebel." },
+  { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", prefix: "HODL_", tagline: "Investiert woechentlich regelbasiert in BTC, ETH und SOL und behaelt einen dauerhaften Kern.", startingCapitalEur: 100 },
+  { key: "freqtrade", name: "Freqtrade", nickname: "Freqtrade", prefix: "FT_", tagline: "Read-only Paper-Trading-Daten aus der separaten Freqtrade-Instanz.", startingCapitalEur: 1000 },
+  { key: "futures", name: "Futures", nickname: "Der Hebler", prefix: "FUT_", tagline: "Paper-Trading mit Kraken Futures und begrenztem Hebel.", startingCapitalEur: 100 },
 ];
 
 export type BotSummary = {
@@ -114,6 +123,7 @@ export type BotSummary = {
   runtimeStartedAt: number | null;
   runtimeStatus: string | null;
   hasData: boolean;
+  startingCapitalEur: number;
 };
 
 export type TradeRow = {
@@ -228,8 +238,9 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       ? num(latestSnap.realized_pnl_eur)
       : doneTrades.reduce((s, t) => s + num(t.real_pnl), 0);
 
-    const equity = latestSnap ? num(latestSnap.equity_eur) : START_CAPITAL;
-    const cash = latestSnap ? num(latestSnap.cash_eur) : START_CAPITAL;
+    const startingCapitalEur = bot.startingCapitalEur;
+    const equity = latestSnap ? num(latestSnap.equity_eur) : startingCapitalEur;
+    const cash = latestSnap ? num(latestSnap.cash_eur) : startingCapitalEur;
 
     const lastTradeTs = botTrades.reduce((max, t) => Math.max(max, num(t.timestamp)), 0);
     const firstTradeTs = botTrades.reduce((min, t) => Math.min(min, num(t.timestamp)), Infinity);
@@ -239,7 +250,7 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const runtimeSnapshots = snapshots.filter((s) => s.bot === `__runtime_${bot.key}`);
     const runtime = runtimeSnapshots[runtimeSnapshots.length - 1];
 
-    const totalPnl = equity - START_CAPITAL;
+    const totalPnl = equity - startingCapitalEur;
     return {
       key: bot.key,
       name: bot.name,
@@ -251,7 +262,7 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       realizedPnlEur: round2(realized),
       unrealizedPnlEur: round2(unrealized),
       totalPnlEur: round2(totalPnl),
-      pnlPct: round2((totalPnl / START_CAPITAL) * 100),
+      pnlPct: round2((totalPnl / startingCapitalEur) * 100),
       tradeCount: botTrades.length,
       closedTradeCount: doneTrades.length,
       startedAt: Number.isFinite(startedAt) ? startedAt : null,
@@ -259,6 +270,7 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       runtimeStartedAt: runtime ? num(runtime.ts) : null,
       runtimeStatus: runtime ? "running" : null,
       hasData: botTrades.length > 0 || botSnaps.length > 0,
+      startingCapitalEur,
     };
   });
 }
@@ -331,7 +343,7 @@ export function getSettings(): SettingsView {
     { label: "Gebühr pro Kauf/Verkauf", value: "0.40 %", hint: "Wird bei jedem Trade abgezogen (Kraken Taker)." },
     { label: "Gebühr (Maker)", value: "0.16 %", hint: "Falls als Maker gehandelt wird." },
     { label: "Modus", value: "Papierhandel", hint: "Es wird kein echtes Geld eingesetzt." },
-    { label: "Startkapital je Bot", value: `${START_CAPITAL} €` },
+    { label: "Startkapital", value: "100 € je Polybot/Futures; 1.000 € Freqtrade" },
   ];
 
   const strategies: StrategyGroup[] = [

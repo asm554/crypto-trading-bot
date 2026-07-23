@@ -15,7 +15,7 @@ export default async function TradesPage() {
       <div>
         <h1 className="text-2xl font-bold">Trades</h1>
         <p className="text-sm text-muted-foreground">
-          Alle Trades der fünf Bots, nach Status und Bot filterbar.
+          Alle Trades aller Bots, einschließlich der separaten Freqtrade- und Futures-Instanzen, nach Status und Bot filterbar.
         </p>
       </div>
 

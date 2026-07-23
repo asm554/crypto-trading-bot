@@ -70,8 +70,8 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
         <div className="mt-4 flex items-end justify-between">
           <div>
             <div className="font-mono text-2xl font-semibold tabular-nums">{eur(bot.equityEur)}</div>
-            <div className={cn("font-mono text-sm font-medium tabular-nums", pnlToneClass(bot.totalPnlEur))}>
-              {signedEur(bot.totalPnlEur)} ({signedPct(bot.pnlPct)})
+            <div className={cn("font-mono text-sm font-medium tabular-nums", pnlToneClass(bot.totalPnlEur))} title={`gegen ${eur(bot.startingCapitalEur)} Startkapital`}>
+              Netto-PnL {signedEur(bot.totalPnlEur)} ({signedPct(bot.pnlPct)})
             </div>
           </div>
           <div className="text-right text-xs text-muted-foreground">

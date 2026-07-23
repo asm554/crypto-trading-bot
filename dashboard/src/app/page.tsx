@@ -30,7 +30,9 @@ export default async function OverviewPage() {
     if (a.hasData !== b.hasData) return a.hasData ? -1 : 1;
     return b.equityEur - a.equityEur;
   });
-  const competingBots = rankedBots.filter((bot) => bot.hasData);
+  const competingBots = rankedBots.filter((bot) => bot.hasData && bot.key !== "hodl");
+  const competitiveRankedBots = rankedBots.filter((bot) => bot.key !== "hodl");
+  const benchmarkBots = rankedBots.filter((bot) => bot.key === "hodl");
   const leader = competingBots[0];
   const runnerUp = competingBots[1];
   const lead = leader && runnerUp ? leader.equityEur - runnerUp.equityEur : null;
@@ -101,10 +103,22 @@ export default async function OverviewPage() {
         <span className="shrink-0 font-mono text-xs text-muted-foreground">{competingBots.length} mit Daten</span>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {rankedBots.map((bot, index) => (
+        {competitiveRankedBots.map((bot, index) => (
           <BotCard key={bot.key} bot={bot} rank={bot.hasData ? index + 1 : undefined} isLeader={bot.key === leader?.key} />
         ))}
       </div>
+
+      {benchmarkBots.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <div>
+            <h2 className="font-heading text-lg font-bold">Langfristiger Benchmark</h2>
+            <p className="text-sm text-muted-foreground">Der HODLer bleibt bewusst außerhalb der aktiven Rangliste.</p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {benchmarkBots.map((bot) => <BotCard key={bot.key} bot={bot} />)}
+          </div>
+        </section>
+      )}
 
       {/* Verlauf */}
       <Card>
