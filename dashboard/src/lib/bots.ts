@@ -146,6 +146,20 @@ export type TradeRow = {
   status: string;
   resolved: boolean;
   pnlEur: number | null;
+  entryPrice: number;
+  exitPrice: number | null;
+  resolvedAt: number | null;
+};
+
+export type PricePoint = { t: number; price: number };
+
+export type TradeDetail = TradeRow & {
+  marketQuestion: string;
+  priceSeries: PricePoint[];
+  priceSource: string;
+  latestPrice: number;
+  highPrice: number;
+  lowPrice: number;
 };
 
 export type EquityPoint = {
@@ -177,6 +191,7 @@ type RawTrade = {
   resolved_at: number | null;
   real_pnl: number | null;
   unrealized_pnl: number | null;
+  exit_price: number | null;
 };
 
 type RawSnapshot = {
@@ -307,6 +322,9 @@ function toTradeRow(r: RawTrade): TradeRow {
     status: r.status,
     resolved: r.resolved_at != null,
     pnlEur: r.real_pnl == null ? null : round2(num(r.real_pnl)),
+    entryPrice: num(r.price),
+    exitPrice: r.exit_price == null ? null : num(r.exit_price),
+    resolvedAt: r.resolved_at == null ? null : num(r.resolved_at),
   };
 }
 
@@ -319,6 +337,102 @@ export async function getRecentTrades(limit = 25): Promise<TradeRow[]> {
 export async function getAllTrades(): Promise<TradeRow[]> {
   const trades = await fetchAllTrades();
   return trades.map(toTradeRow);
+}
+
+const KRAKEN_PAIR_MAP: Record<string, string> = {
+  XBTEUR: "XXBTZEUR",
+  ETHEUR: "XETHZEUR",
+  LTCEUR: "XLTCZEUR",
+  XRPEUR: "XXRPZEUR",
+  XLMEUR: "XXLMZEUR",
+};
+
+async function fetchSpotPriceSeries(pair: string, since: number): Promise<PricePoint[]> {
+  const requested = KRAKEN_PAIR_MAP[pair] ?? pair;
+  try {
+    const params = new URLSearchParams({
+      pair: requested,
+      interval: "60",
+      since: String(Math.max(0, Math.floor(since))),
+    });
+    const res = await fetch(`https://api.kraken.com/0/public/OHLC?${params}`, {
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) return [];
+    const payload = await res.json() as {
+      result?: Record<string, unknown>;
+    };
+    const rows = Object.entries(payload.result ?? {}).find(([key, value]) => key !== "last" && Array.isArray(value))?.[1];
+    if (!Array.isArray(rows)) return [];
+    return rows.flatMap((row) => {
+      if (!Array.isArray(row)) return [];
+      const t = num(row[0]);
+      const price = num(row[4]);
+      return t > 0 && price > 0 ? [{ t, price }] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function fetchFuturesPriceSeries(symbol: string): Promise<PricePoint[]> {
+  try {
+    const safeSymbol = encodeURIComponent(symbol);
+    const res = await fetch(
+      `https://futures.kraken.com/api/charts/v1/mark/${safeSymbol}/1h?count=720`,
+      { next: { revalidate: 300 } },
+    );
+    if (!res.ok) return [];
+    const payload = await res.json() as { candles?: Array<{ time?: number; close?: number | string }> };
+    return (payload.candles ?? []).flatMap((candle) => {
+      const rawTime = num(candle.time);
+      const t = rawTime > 10_000_000_000 ? rawTime / 1000 : rawTime;
+      const price = num(candle.close);
+      return t > 0 && price > 0 ? [{ t, price }] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
+  const trades = await fetchAllTrades();
+  const raw = trades.find((trade) => trade.id === id);
+  if (!raw) return null;
+  const row = toTradeRow(raw);
+  const meta = BOTS.find((bot) => raw.market_question.startsWith(bot.prefix));
+  const rest = meta ? raw.market_question.slice(meta.prefix.length) : raw.market_question;
+  let priceSeries: PricePoint[] = [];
+  let priceSource = "Entry-/Exit-Daten";
+
+  if (meta?.key === "futures") {
+    const symbol = rest.split("_").slice(0, 2).join("_");
+    priceSeries = await fetchFuturesPriceSeries(symbol);
+    priceSource = "Kraken Futures · Mark Price · 1h";
+  } else if (!["memecoin", "pumpfun", "pumpfun_v2", "scout", "freqtrade"].includes(meta?.key ?? "")) {
+    priceSeries = await fetchSpotPriceSeries(row.pair, raw.timestamp - 6 * 3600);
+    priceSource = "Kraken Spot · OHLC · 1h";
+  }
+
+  const endTs = row.resolvedAt ?? Math.floor(Date.now() / 1000);
+  priceSeries = priceSeries.filter((point) => point.t >= raw.timestamp - 6 * 3600 && point.t <= endTs + 6 * 3600);
+  if (priceSeries.length < 2) {
+    priceSeries = [
+      { t: raw.timestamp, price: row.entryPrice },
+      { t: endTs, price: row.exitPrice ?? row.entryPrice },
+    ];
+  }
+  const prices = priceSeries.map((point) => point.price);
+  const latestPrice = row.exitPrice ?? prices[prices.length - 1] ?? row.entryPrice;
+  return {
+    ...row,
+    marketQuestion: raw.market_question,
+    priceSeries,
+    priceSource,
+    latestPrice,
+    highPrice: Math.max(...prices, row.entryPrice, latestPrice),
+    lowPrice: Math.min(...prices, row.entryPrice, latestPrice),
+  };
 }
 
 export async function getEquitySeries(): Promise<EquityPoint[]> {
