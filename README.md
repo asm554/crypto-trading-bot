@@ -82,6 +82,26 @@ sudo systemctl enable --now polybot-dca.service
 
 Passe vorher unbedingt `WorkingDirectory` und `ExecStart` an deinen Installationspfad an.
 
+### Dashboard und HODLer separat betreiben
+
+Der HODLer läuft als eigener, paper-only systemd-Dienst. Das Dashboard läuft als
+separater Next.js-Produktionsdienst und wird über Nginx auf Port 3100 veröffentlicht:
+
+```bash
+sudo cp systemd/polybot-hodl.service.example /etc/systemd/system/polybot-hodl.service
+sudo cp systemd/trading-dashboard.service.example /etc/systemd/system/trading-dashboard.service
+sudo cp systemd/dashboard.nginx.example /etc/nginx/sites-available/dashboard.example.com
+sudo ln -s /etc/nginx/sites-available/dashboard.example.com /etc/nginx/sites-enabled/dashboard.example.com
+cd /root/trading-dashboard && npm ci && npm run build
+sudo systemctl daemon-reload
+sudo systemctl enable --now polybot-hodl.service trading-dashboard.service
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Der HODLer schreibt ausschließlich seinen eigenen State unter `polybot/data/hodl_state.json`
+und seine `HODL_`-Ledger-Einträge. Der Dashboard-Dienst liest die synchronisierten Supabase-Daten;
+Vercel ist für den Betrieb nicht erforderlich.
+
 ## Entwicklungsregeln
 
 1. Keine Secrets committen.
