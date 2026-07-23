@@ -4,8 +4,7 @@ import { EquityChart } from "@/components/equity-chart";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
-import { Bot, CalendarDays, Download, ShieldCheck, Trophy } from "lucide-react";
+import { CalendarDays, Trophy } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -44,27 +43,28 @@ export default async function OverviewPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Übersicht</h1>
+          <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">Paper-Trading Battle</div>
+          <h1 className="mt-1 text-2xl font-bold">Übersicht</h1>
           <p className="text-sm text-muted-foreground">
-            {bots.length} Bots handeln mit Spielgeld gegeneinander. Wer macht am meisten daraus?
+            {competingBots.length} Bots im 100-€-Ranking · Netto-Equity entscheidet.
           </p>
         </div>
         <AutoRefresh />
       </div>
 
-      <Card className="relative overflow-hidden border-primary/35">
-        <CardContent className="grid gap-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)] lg:items-end">
+      <Card className="border-primary/25 bg-card/85">
+        <CardContent className="grid gap-5 py-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.8fr)] lg:items-end">
           {leader ? (
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-primary">
                 <Trophy aria-hidden className="size-4" />
                 <span className="font-mono text-xs font-semibold uppercase tracking-[0.16em]">Aktueller Spitzenreiter</span>
               </div>
-              <div className="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                <h2 className="font-heading text-3xl font-bold">{leader.nickname}</h2>
+              <div className="mt-2 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h2 className="font-heading text-2xl font-bold">{leader.nickname}</h2>
                 <span className="text-sm text-muted-foreground">{leader.name}</span>
               </div>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">{leader.tagline}</p>
+              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{leader.tagline}</p>
               {leader.startedAt && (
                 <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                   <CalendarDays aria-hidden className="size-4" />
@@ -83,7 +83,7 @@ export default async function OverviewPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4 border-t pt-5 lg:border-t-0 lg:border-l lg:pl-6 lg:pt-0">
+          <div className="grid grid-cols-2 gap-4 border-t pt-4 lg:border-t-0 lg:border-l lg:pl-6 lg:pt-0">
             <div>
               <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Netto-Equity</div>
               <div className="mt-1 font-mono text-2xl font-semibold tabular-nums">{leader ? eur(leader.equityEur) : "—"}</div>
@@ -111,55 +111,40 @@ export default async function OverviewPage() {
         ))}
       </div>
 
-      {benchmarkBots.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <div>
-            <h2 className="font-heading text-lg font-bold">Langfristiger Benchmark</h2>
-            <p className="text-sm text-muted-foreground">Der HODLer bleibt bewusst außerhalb der aktiven Rangliste.</p>
+      {(benchmarkBots.length > 0 || leveragedBots.length > 0 || externalBots.length > 0) && (
+        <section className="border-t pt-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <h2 className="font-heading text-lg font-bold">Außer Konkurrenz</h2>
+              <p className="text-sm text-muted-foreground">Eigene Regeln oder eigenes Startkapital – separat, aber transparent verfolgt.</p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              {benchmarkBots.length > 0 && <Badge variant="outline">HODLer · Benchmark</Badge>}
+              {leveragedBots.length > 0 && <Badge variant="outline" className="border-orange-500/35 text-orange-700 dark:text-orange-300">Hebel · 1.000 €</Badge>}
+              {externalBots.length > 0 && <Badge variant="outline">Freqtrade · extern</Badge>}
+            </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {benchmarkBots.map((bot) => <BotCard key={bot.key} bot={bot} />)}
-          </div>
-        </section>
-      )}
-
-      {leveragedBots.length > 0 && (
-        <section className="flex flex-col gap-3 rounded-xl border border-orange-500/30 bg-orange-500/5 p-4">
-          <div>
-            <h2 className="font-heading text-lg font-bold">Hebel-Bot · gesonderte Wertung</h2>
-            <p className="text-sm text-muted-foreground">
-              1.000 € Startkapital und 2× Paper-Hebel – deshalb bewusst außerhalb des 100-€-Rankings.
-            </p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {leveragedBots.map((bot) => <BotCard key={bot.key} bot={bot} />)}
-          </div>
-          <Card>
-            <CardHeader>
-              <CardTitle className="font-heading text-base font-bold">Hebel-Equity</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <EquityChart data={equity} includeKeys={["futures", "futures_grid"]} />
-            </CardContent>
-          </Card>
-        </section>
-      )}
-
-      {externalBots.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <div>
-            <h2 className="font-heading text-lg font-bold">Externe Referenz</h2>
-            <p className="text-sm text-muted-foreground">Freqtrade läuft mit eigenem Kapital und zählt nicht für das Haupt-Ranking.</p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {externalBots.map((bot) => <BotCard key={bot.key} bot={bot} />)}
           </div>
+          {leveragedBots.length > 0 && (
+            <Card className="mt-4 bg-card/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="font-heading text-base font-bold">Hebel-Equity</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <EquityChart data={equity} includeKeys={["futures", "futures_grid"]} />
+              </CardContent>
+            </Card>
+          )}
         </section>
       )}
 
       {/* Verlauf */}
-      <Card>
-        <CardHeader>
+      <Card className="bg-card/85">
+        <CardHeader className="pb-2">
           <CardTitle className="font-heading text-base font-bold">Wert-Verlauf</CardTitle>
         </CardHeader>
         <CardContent>
@@ -171,8 +156,8 @@ export default async function OverviewPage() {
       </Card>
 
       {/* Letzte Trades */}
-      <Card>
-        <CardHeader>
+      <Card className="bg-card/85">
+        <CardHeader className="pb-2">
           <CardTitle className="font-heading text-base font-bold">Letzte Trades</CardTitle>
         </CardHeader>
         <CardContent>
@@ -227,44 +212,6 @@ export default async function OverviewPage() {
         </CardContent>
       </Card>
 
-      <section className="relative overflow-hidden border-y border-primary/30 bg-card px-5 py-8 sm:px-8 sm:py-10">
-        <div
-          aria-hidden
-          className="absolute inset-y-0 left-0 w-1"
-          style={{ background: "var(--primary)" }}
-        />
-        <div className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-primary">
-              <Bot aria-hidden className="size-5" />
-              <span className="font-mono text-xs font-bold uppercase tracking-[0.16em]">Offener Startplatz</span>
-            </div>
-            <h2 className="mt-3 font-heading text-2xl font-bold sm:text-3xl">Entwickle deinen eigenen Bot</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Das Stack-Sheet ist der technische Steckbrief deines Bot-Vorschlags: Strategie, Risiko, Kostenmodell und Battle-Regeln in einer Datei. Als Markdown-Datei (.md) ausfüllen und hier wieder als .md hochladen.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck aria-hidden className="size-4 text-emerald-500" />
-                Nur Paper-Trading
-              </span>
-              <span>100 € Startkapital</span>
-              <span>30 Trades vor Optimierung</span>
-            </div>
-          </div>
-          <a
-            href="/bot-stack-sheet.md"
-            download="bot-stack-sheet.md"
-            className={cn(
-              buttonVariants({ size: "lg" }),
-              "h-auto min-h-11 w-full min-w-0 max-w-full shrink gap-2 whitespace-normal px-4 py-2 text-center leading-5 font-bold sm:w-auto sm:shrink-0 sm:whitespace-nowrap"
-            )}
-          >
-            <Download aria-hidden className="size-4" />
-            Erforderliches Stack-Sheet herunterladen
-          </a>
-        </div>
-      </section>
     </div>
   );
 }

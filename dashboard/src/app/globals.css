@@ -155,12 +155,12 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* Terminal-Atmosphäre: feines Raster + Lichtkegel oben, statt flacher Fläche. */
+    /* Ruhige Terminal-Atmosphäre: Raster bleibt als Orientierung im Hintergrund. */
     background-image:
-      radial-gradient(ellipse 80% 50% at 50% -10%, oklch(0.86 0.155 92 / 7%), transparent 70%),
-      linear-gradient(to right, oklch(0.94 0.02 268 / 2.5%) 1px, transparent 1px),
-      linear-gradient(to bottom, oklch(0.94 0.02 268 / 2.5%) 1px, transparent 1px);
-    background-size: 100% 100%, 44px 44px, 44px 44px;
+      radial-gradient(ellipse 80% 42% at 50% -12%, oklch(0.86 0.155 92 / 5%), transparent 70%),
+      linear-gradient(to right, oklch(0.94 0.02 268 / 1.6%) 1px, transparent 1px),
+      linear-gradient(to bottom, oklch(0.94 0.02 268 / 1.6%) 1px, transparent 1px);
+    background-size: 100% 100%, 56px 56px, 56px 56px;
     background-attachment: fixed;
   }
   html {
