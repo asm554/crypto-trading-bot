@@ -269,16 +269,19 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
 }
 
 function toTradeRow(r: RawTrade): TradeRow {
+  const isFreqtrade = r.market_question.startsWith("FT_");
   const meta = BOTS.find((b) => r.market_question.startsWith(b.prefix));
   // "Der Onchain" kodiert CHAIN_{symbol}@{address} (Adresse für die Preis-
   // Auflösung, da zwei dynamisch entdeckte Solana-Tokens denselben Namen
   // tragen können) — im Dashboard reicht das Symbol vor dem "@".
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
-  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
+  const pair = isFreqtrade
+    ? r.market_question.slice(3)
+    : meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
   return {
     id: r.id,
-    botKey: meta?.key ?? "?",
-    bot: meta?.nickname ?? "?",
+    botKey: isFreqtrade ? "freqtrade" : meta?.key ?? "?",
+    bot: isFreqtrade ? "Der Freqtrade" : meta?.nickname ?? "?",
     pair,
     side: r.side,
     sizeEur: round2(num(r.size) * num(r.price)),
@@ -286,7 +289,9 @@ function toTradeRow(r: RawTrade): TradeRow {
     timestamp: num(r.timestamp),
     status: r.status,
     resolved: r.resolved_at != null,
-    pnlEur: r.real_pnl == null ? null : round2(num(r.real_pnl)),
+    pnlEur: r.resolved_at == null
+      ? (r.unrealized_pnl == null ? null : round2(num(r.unrealized_pnl)))
+      : (r.real_pnl == null ? null : round2(num(r.real_pnl))),
   };
 }
 

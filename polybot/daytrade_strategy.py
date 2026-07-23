@@ -324,17 +324,23 @@ class DaytradeBot:
         ticker = await fetch_ticker_data(list(self.portfolio.keys())) if self.portfolio else {}
         unrealized = 0.0
         mtm = 0.0
+        trade_pnls: dict[int, float] = {}
         fee = config.CRYPTO_TAKER_FEE_RATE
         for pair, pos in self.portfolio.items():
+            entry_cost = float(pos["cost_basis"])
             snap = self._snapshot_for_pair(pair, ticker)
             if not snap:
+                mtm += entry_cost
+                trade_pnls[int(pos["trade_id"])] = 0.0
                 continue
             # Mark-to-Market simuliert den Verkauf, also zum Bid bewerten.
             current_value = float(pos["shares"]) * float(snap.get("bid") or snap["last_price"])
             sell_fee = current_value * fee
-            entry_cost = float(pos["cost_basis"])
-            mtm += current_value - sell_fee
-            unrealized += current_value - entry_cost - entry_cost * fee - sell_fee
+            position_pnl = current_value - entry_cost - entry_cost * fee - sell_fee
+            mtm += entry_cost + position_pnl
+            unrealized += position_pnl
+            trade_pnls[int(pos["trade_id"])] = position_pnl
+        await paper_db_module.update_unrealized_pnls(trade_pnls)
         realized = await paper_db_module.get_realized_pnl_by_prefix(PREFIX)
         return {"equity_eur": self.capital_remaining + mtm, "cash_eur": self.capital_remaining, "open_positions": len(self.portfolio), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
 
@@ -349,11 +355,12 @@ class DaytradeBot:
 
     async def run(self) -> None:
         logger.info("🤖 Daytrade-Bot gestartet [PAPER] | Budget %.2f€ | Lookback %dh", self.initial_capital_eur, self.lookback_hours)
+        await self.maybe_snapshot(force=True)
         while True:
             try:
-                await self.manage_positions()
-                await self.scan_entries()
-                await self.maybe_snapshot()
+                resolved = await self.manage_positions()
+                opened = await self.scan_entries()
+                await self.maybe_snapshot(force=bool(resolved or opened))
             except Exception as e:
                 logger.exception("⚠️ Daytrade-Loop-Fehler (%s) – weiter in 30s", e)
                 await asyncio.sleep(30)

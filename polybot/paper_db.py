@@ -235,11 +235,25 @@ async def resolve_trade(trade_id: int, exit_price: float, real_pnl: float):
     aiosqlite = _require_aiosqlite()
     async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
         await db.execute(
-            "UPDATE paper_trades SET exit_price=?, resolved_at=?, real_pnl=? WHERE id=?",
+            "UPDATE paper_trades SET exit_price=?, resolved_at=?, real_pnl=?, unrealized_pnl=NULL WHERE id=?",
             (exit_price, time.time(), real_pnl, trade_id)
         )
         await db.commit()
     logger.info(f"✅ Trade #{trade_id} aufgelöst: exit={exit_price:.4f} pnl={real_pnl:+.4f}$")
+
+
+async def update_unrealized_pnls(values: dict[int, float]) -> None:
+    """Aktualisiert den aktuellen Netto-PnL offener Positionen in einem DB-Lauf."""
+    if not values:
+        return
+    aiosqlite = _require_aiosqlite()
+    rows = [(float(pnl), int(trade_id)) for trade_id, pnl in values.items()]
+    async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
+        await db.executemany(
+            "UPDATE paper_trades SET unrealized_pnl=? WHERE id=? AND resolved_at IS NULL",
+            rows,
+        )
+        await db.commit()
 
 
 def prefix_like_pattern(prefix: str) -> str:
