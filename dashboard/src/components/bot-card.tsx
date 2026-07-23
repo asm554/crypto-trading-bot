@@ -61,9 +61,6 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
                 Rang {rank}
               </Badge>
             )}
-            <Badge variant="secondary" className="font-mono text-xs tabular-nums">
-              {bot.openPositions} offen
-            </Badge>
           </div>
         </div>
 
