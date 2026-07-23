@@ -46,6 +46,7 @@ python -m polybot.main_meanrev
 python -m polybot.main_arb
 python -m polybot.main_daytrade
 python -m polybot.main_memecoin
+python -m polybot.main_futures     # 2x leveraged grid, paper-only, separate 1,000€ class
 python -m polybot.battle_report
 python -m polybot.main_cloud_sync   # mirrors the local DB to Supabase for the dashboard
 ```
@@ -64,7 +65,7 @@ npx tsc --noEmit
 ## Verify
 
 ```bash
-python -m py_compile polybot/dca_strategy.py polybot/main_dca.py polybot/momentum_strategy.py polybot/main_momentum.py polybot/meanrev_strategy.py polybot/main_meanrev.py polybot/arb_strategy.py polybot/main_arb.py polybot/daytrade_strategy.py polybot/main_daytrade.py polybot/memecoin_strategy.py polybot/main_memecoin.py polybot/battle_report.py
+python -m py_compile polybot/dca_strategy.py polybot/main_dca.py polybot/momentum_strategy.py polybot/main_momentum.py polybot/meanrev_strategy.py polybot/main_meanrev.py polybot/arb_strategy.py polybot/main_arb.py polybot/daytrade_strategy.py polybot/main_daytrade.py polybot/memecoin_strategy.py polybot/main_memecoin.py polybot/futures_grid_strategy.py polybot/main_futures.py polybot/battle_report.py
 python -m pytest -q
 ```
 

@@ -9,7 +9,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import type { EquityPoint } from "@/lib/bots";
+import type { BotKey, EquityPoint } from "@/lib/bots";
 
 // Farben kommen aus globals.css (--bot-*), damit Karten und Chart identisch sind.
 const config = {
@@ -46,7 +46,16 @@ const DASH: Record<keyof typeof config, string | undefined> = {
   futures: "10 2",
 };
 
-export function EquityChart({ data }: { data: EquityPoint[] }) {
+export function EquityChart({
+  data,
+  includeKeys,
+}: {
+  data: EquityPoint[];
+  includeKeys?: BotKey[];
+}) {
+  const keys = (Object.keys(config) as Array<keyof typeof config>).filter(
+    (key) => !includeKeys || includeKeys.includes(key),
+  );
   if (data.length < 2) {
     return (
       <div className="flex h-[260px] flex-col items-center justify-center gap-1 text-center text-sm text-muted-foreground">
@@ -58,7 +67,7 @@ export function EquityChart({ data }: { data: EquityPoint[] }) {
 
   return (
     <>
-      <p className="sr-only">{describeLatest(data)}</p>
+      <p className="sr-only">{describeLatest(data, keys)}</p>
       <ChartContainer config={config} className="h-[260px] w-full">
         <LineChart data={data} margin={{ left: 4, right: 8, top: 8 }}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -81,7 +90,7 @@ export function EquityChart({ data }: { data: EquityPoint[] }) {
           />
           <ChartTooltip content={<ChartTooltipContent />} />
           <ChartLegend content={<ChartLegendContent />} />
-          {(Object.keys(config) as Array<keyof typeof config>).map((key) => (
+          {keys.map((key) => (
             <Line
               key={key}
               dataKey={key}
@@ -100,9 +109,9 @@ export function EquityChart({ data }: { data: EquityPoint[] }) {
 }
 
 // Screenreader-Zusammenfassung: die Linien allein sind nicht vorlesbar.
-function describeLatest(data: EquityPoint[]): string {
+function describeLatest(data: EquityPoint[], keys: Array<keyof typeof config>): string {
   const last = data[data.length - 1];
-  const entries = (Object.keys(config) as Array<keyof typeof config>)
+  const entries = keys
     .map((key) => ({ label: config[key].label as string, value: last[key] }))
     .filter((e): e is { label: string; value: number } => e.value != null)
     .sort((a, b) => b.value - a.value);

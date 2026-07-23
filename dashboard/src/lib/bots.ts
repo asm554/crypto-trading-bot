@@ -101,7 +101,14 @@ export const BOTS: BotMeta[] = [
   },
   { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", prefix: "HODL_", tagline: "Investiert woechentlich regelbasiert in BTC, ETH und SOL und behaelt einen dauerhaften Kern.", startingCapitalEur: 100 },
   { key: "freqtrade", name: "Freqtrade", nickname: "Freqtrade", prefix: "FT_", tagline: "Read-only Paper-Trading-Daten aus der separaten Freqtrade-Instanz.", startingCapitalEur: 1000 },
-  { key: "futures", name: "Futures", nickname: "Der Hebler", prefix: "FUT_", tagline: "Paper-Trading mit Kraken Futures und begrenztem Hebel.", startingCapitalEur: 100 },
+  {
+    key: "futures",
+    name: "2× Futures Grid",
+    nickname: "Der Treppensteiger Turbo",
+    prefix: "FUT_",
+    tagline: "Kauft ETH in 0,8-%-Stufen mit 2× Paper-Hebel und fest begrenzter isolierter Margin.",
+    startingCapitalEur: 1000,
+  },
 ];
 
 export type BotSummary = {
@@ -281,7 +288,11 @@ function toTradeRow(r: RawTrade): TradeRow {
   // Auflösung, da zwei dynamisch entdeckte Solana-Tokens denselben Namen
   // tragen können) — im Dashboard reicht das Symbol vor dem "@".
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
-  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
+  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout"
+    ? rest.split("@")[0]
+    : meta?.key === "hodl" || meta?.key === "futures"
+      ? rest.split("_")[0]
+      : rest;
   return {
     id: r.id,
     botKey: meta?.key ?? "?",
@@ -343,10 +354,26 @@ export function getSettings(): SettingsView {
     { label: "Gebühr pro Kauf/Verkauf", value: "0.40 %", hint: "Wird bei jedem Trade abgezogen (Kraken Taker)." },
     { label: "Gebühr (Maker)", value: "0.16 %", hint: "Falls als Maker gehandelt wird." },
     { label: "Modus", value: "Papierhandel", hint: "Es wird kein echtes Geld eingesetzt." },
-    { label: "Startkapital", value: "100 € je Polybot/Futures; 1.000 € Freqtrade" },
+    { label: "Startkapital", value: "100 € Standard-Battle; 1.000 € Futures/Freqtrade" },
   ];
 
   const strategies: StrategyGroup[] = [
+    {
+      key: "futures",
+      name: "2× Futures Grid",
+      nickname: "Der Treppensteiger Turbo",
+      purpose: "Testet die ETH-Nachkaufstrategie aus dem Video mit Hebel, aber ohne echtes Geld und ohne nachträgliches Margin-Nachschießen.",
+      currentBehavior: "Startet sofort long, legt je 0,8 % Rückgang eine gleich große 2×-Position nach und schließt den Zyklus bei 1,1 % über dem Durchschnitt oder vor der Liquidationszone.",
+      params: [
+        { label: "Startkapital", value: "1.000 €" },
+        { label: "Hebel", value: "2× isoliert" },
+        { label: "Margin je Stufe", value: "15 €", hint: "Entspricht 30 € Positionswert." },
+        { label: "Raster", value: "−0,8 %" },
+        { label: "Max. Nachkäufe", value: "50" },
+        { label: "Gewinnmitnahme", value: "+1,1 %" },
+        { label: "Margin-Wächter", value: "1,25× Maintenance", hint: "Schließt vor der simulierten Liquidation." },
+      ],
+    },
     {
       key: "dca",
       name: "DCA",

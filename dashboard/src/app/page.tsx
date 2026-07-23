@@ -30,9 +30,12 @@ export default async function OverviewPage() {
     if (a.hasData !== b.hasData) return a.hasData ? -1 : 1;
     return b.equityEur - a.equityEur;
   });
-  const competingBots = rankedBots.filter((bot) => bot.hasData && bot.key !== "hodl");
-  const competitiveRankedBots = rankedBots.filter((bot) => bot.key !== "hodl");
+  const separateKeys = new Set(["hodl", "futures", "freqtrade"]);
+  const competingBots = rankedBots.filter((bot) => bot.hasData && !separateKeys.has(bot.key));
+  const competitiveRankedBots = rankedBots.filter((bot) => !separateKeys.has(bot.key));
   const benchmarkBots = rankedBots.filter((bot) => bot.key === "hodl");
+  const leveragedBots = rankedBots.filter((bot) => bot.key === "futures");
+  const externalBots = rankedBots.filter((bot) => bot.key === "freqtrade");
   const leader = competingBots[0];
   const runnerUp = competingBots[1];
   const lead = leader && runnerUp ? leader.equityEur - runnerUp.equityEur : null;
@@ -120,13 +123,50 @@ export default async function OverviewPage() {
         </section>
       )}
 
+      {leveragedBots.length > 0 && (
+        <section className="flex flex-col gap-3 rounded-xl border border-orange-500/30 bg-orange-500/5 p-4">
+          <div>
+            <h2 className="font-heading text-lg font-bold">Hebel-Bot · gesonderte Wertung</h2>
+            <p className="text-sm text-muted-foreground">
+              1.000 € Startkapital und 2× Paper-Hebel – deshalb bewusst außerhalb des 100-€-Rankings.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {leveragedBots.map((bot) => <BotCard key={bot.key} bot={bot} />)}
+          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-heading text-base font-bold">Hebel-Equity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <EquityChart data={equity} includeKeys={["futures"]} />
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
+      {externalBots.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <div>
+            <h2 className="font-heading text-lg font-bold">Externe Referenz</h2>
+            <p className="text-sm text-muted-foreground">Freqtrade läuft mit eigenem Kapital und zählt nicht für das Haupt-Ranking.</p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {externalBots.map((bot) => <BotCard key={bot.key} bot={bot} />)}
+          </div>
+        </section>
+      )}
+
       {/* Verlauf */}
       <Card>
         <CardHeader>
           <CardTitle className="font-heading text-base font-bold">Wert-Verlauf</CardTitle>
         </CardHeader>
         <CardContent>
-          <EquityChart data={equity} />
+          <EquityChart
+            data={equity}
+            includeKeys={["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "scout", "hodl"]}
+          />
         </CardContent>
       </Card>
 

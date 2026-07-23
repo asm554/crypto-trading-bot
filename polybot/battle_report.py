@@ -31,6 +31,7 @@ BOTS = {
     "surfer": {"label": "Der Surfer", "prefix": "SURF_", "state": DATA_DIR / "surfer_state.json"},
     "scout": {"label": "Der Spaeher", "prefix": "SCOUT_", "state": DATA_DIR / "scout_state.json"},
     "hodl": {"label": "Der HODLer", "prefix": "HODL_", "state": DATA_DIR / "hodl_state.json"},
+    "futures": {"label": "Treppen Turbo", "prefix": "FUT_", "state": DATA_DIR / "futures_state.json"},
 }
 
 
@@ -180,6 +181,42 @@ async def equity_for_hodl(prefix: str, state_path: Path, bot: str) -> dict:
     return snap
 
 
+async def equity_for_futures(prefix: str, state_path: Path, bot: str) -> dict:
+    """Value the isolated-margin paper futures account from its persisted state."""
+    try:
+        state = json.loads(state_path.read_text())
+    except Exception:
+        state = {}
+    cash = float(state.get("capital_remaining", 1000.0))
+    orders = list(state.get("orders") or [])
+    ticker = await fetch_ticker_data(["ETHEUR"]) if orders else {}
+    data = ticker.get(PAIR_MAP.get("ETHEUR", "ETHEUR")) or ticker.get("ETHEUR")
+    if data:
+        last = float(data["c"][0])
+        bid, _ = extract_quote(data, last)
+    else:
+        bid = 0.0
+    reserved = unrealized = exit_fee = 0.0
+    for order in orders:
+        reserved += float(order.get("margin_eur", 0.0))
+        shares = float(order.get("shares", 0.0))
+        entry = float(order.get("entry_price", 0.0))
+        mark = bid if bid > 0 else entry
+        unrealized += shares * (mark - entry)
+        exit_fee += shares * mark * float(order.get("taker_fee_rate", 0.0005))
+    realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
+    funding = float(state.get("realized_funding_eur", 0.0))
+    snap = {
+        "equity_eur": cash + reserved + unrealized - exit_fee,
+        "cash_eur": cash,
+        "open_positions": len(orders),
+        "unrealized_pnl_eur": unrealized - exit_fee,
+        "realized_pnl_eur": realized - funding,
+    }
+    await log_equity_snapshot(bot, **snap)
+    return snap
+
+
 def rows_for_bot(bot: str) -> list[tuple]:
     con = sqlite3.connect(DB_PATH, timeout=30.0)
     try:
@@ -286,9 +323,12 @@ async def build_report() -> str:
             snaps[bot] = await equity_for_scout(cfg["prefix"], cfg["state"], bot)
         elif bot == "hodl":
             snaps[bot] = await equity_for_hodl(cfg["prefix"], cfg["state"], bot)
+        elif bot == "futures":
+            snaps[bot] = await equity_for_futures(cfg["prefix"], cfg["state"], bot)
         else:
             snaps[bot] = await equity_for(cfg["prefix"], cfg["state"], bot)
-    ranking = sorted(snaps.items(), key=lambda kv: kv[1]["equity_eur"], reverse=True)
+    standard_snaps = {bot: snap for bot, snap in snaps.items() if bot != "futures"}
+    ranking = sorted(standard_snaps.items(), key=lambda kv: kv[1]["equity_eur"], reverse=True)
     lines = [f"🏁 Strategie-Battle — Tag {day}/{int(meta.get('duration_days', DURATION_DAYS))}", ""]
     for idx, (bot, s) in enumerate(ranking):
         vals = [r[1] for r in rows_for_bot(bot)]
@@ -309,6 +349,16 @@ async def build_report() -> str:
             f"{longest_losing_streak(cfg['prefix']):>6}"
         )
     lines.append("```")
+    future = snaps["futures"]
+    future_rows = rows_for_bot("futures")
+    future_vals = [r[1] for r in future_rows]
+    future_pct = (future["equity_eur"] / 1000.0 - 1) * 100
+    lines.append("")
+    lines.append("⚡ Gesonderte Hebel-Wertung (1.000 € Startkapital, 2× Paper)")
+    lines.append(
+        f"Treppen Turbo {future['equity_eur']:.2f} € ({future_pct:+.1f} %) | "
+        f"offen {future['open_positions']} | MaxDD {max_drawdown(future_vals):+.1f}%"
+    )
     lines.append("")
     lines.append("KPI: Ranking nach Netto-Equity (Cash + Mark-to-Market nach Gebühren), nicht nach realisiertem PnL.")
     lines.append("Fills: Kauf zum Ask, Verkauf zum Bid (echter Kraken-Spread).")
