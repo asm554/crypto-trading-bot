@@ -9,7 +9,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
 const START_CAPITAL = 100; // Startkapital pro Bot (€)
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl" | "freqtrade" | "futures";
 
 type BotMeta = {
   key: BotKey;
@@ -91,6 +91,8 @@ export const BOTS: BotMeta[] = [
     tagline: "Beobachtet neue Solana-Pools 20 Minuten und handelt nur nach harten Sicherheits-, Aktivitaets- und Route-Checks.",
   },
   { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", prefix: "HODL_", tagline: "Investiert woechentlich regelbasiert in BTC, ETH und SOL und behaelt einen dauerhaften Kern." },
+  { key: "freqtrade", name: "Freqtrade", nickname: "Freqtrade", prefix: "FT_", tagline: "Read-only Paper-Trading-Daten aus der separaten Freqtrade-Instanz." },
+  { key: "futures", name: "Futures", nickname: "Der Hebler", prefix: "FUT_", tagline: "Paper-Trading mit Kraken Futures und begrenztem Hebel." },
 ];
 
 export type BotSummary = {
@@ -141,6 +143,8 @@ export type EquityPoint = {
   surfer: number | null;
   scout: number | null;
   hodl: number | null;
+  freqtrade: number | null;
+  futures: number | null;
 };
 
 type RawTrade = {
@@ -299,7 +303,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null, freqtrade: null, futures: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }

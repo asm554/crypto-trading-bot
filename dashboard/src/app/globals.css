@@ -141,6 +141,8 @@
   --bot-surfer: oklch(0.73 0.16 100);
   --bot-scout: oklch(0.72 0.15 20);
   --bot-hodl: oklch(0.72 0.14 285);
+  --bot-freqtrade: oklch(0.76 0.13 80);
+  --bot-futures: oklch(0.74 0.16 25);
   --up: oklch(0.78 0.16 160);
   --down: oklch(0.68 0.2 25);
 }
