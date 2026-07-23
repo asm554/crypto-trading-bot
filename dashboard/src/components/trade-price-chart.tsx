@@ -27,12 +27,16 @@ export function TradePriceChart({
   exitPrice,
   entryTs,
   exitTs,
+  targetPrice,
+  breakEvenPrice,
 }: {
   data: PricePoint[];
   entryPrice: number;
   exitPrice: number | null;
   entryTs: number;
   exitTs: number | null;
+  targetPrice: number | null;
+  breakEvenPrice: number | null;
 }) {
   const visibleEntry = nearestPoint(data, entryTs);
   const visibleExit = exitTs ? nearestPoint(data, exitTs) : null;
@@ -81,6 +85,24 @@ export function TradePriceChart({
             stroke="var(--bot-meanrev)"
             strokeDasharray="5 4"
             label={{ value: "Exit", fill: "var(--bot-meanrev)", position: "insideBottomLeft" }}
+          />
+        )}
+        {breakEvenPrice != null && (
+          <ReferenceLine
+            y={breakEvenPrice}
+            stroke="var(--muted-foreground)"
+            strokeDasharray="2 4"
+            ifOverflow="extendDomain"
+            label={{ value: "Gebühren-Break-even", fill: "var(--muted-foreground)", position: "insideTopRight" }}
+          />
+        )}
+        {targetPrice != null && (
+          <ReferenceLine
+            y={targetPrice}
+            stroke="var(--bot-arb)"
+            strokeDasharray="8 4"
+            ifOverflow="extendDomain"
+            label={{ value: "Ziel-Exit", fill: "var(--bot-arb)", position: "insideTopLeft" }}
           />
         )}
         <Line

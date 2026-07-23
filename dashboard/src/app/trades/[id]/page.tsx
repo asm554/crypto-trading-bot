@@ -78,6 +78,8 @@ export default async function TradeDetailPage({
             exitPrice={trade.exitPrice}
             entryTs={trade.timestamp}
             exitTs={trade.resolvedAt}
+            targetPrice={trade.targetPrice}
+            breakEvenPrice={trade.breakEvenPrice}
           />
         </CardContent>
       </Card>
@@ -92,6 +94,12 @@ export default async function TradeDetailPage({
             <DetailRow label="Positionswert" value={eur(trade.sizeEur)} mono />
             <DetailRow label="Höchster Kurs" value={formatPrice(trade.highPrice)} mono />
             <DetailRow label="Tiefster Kurs" value={formatPrice(trade.lowPrice)} mono />
+            {trade.breakEvenPrice != null && (
+              <DetailRow label="Gebühren-Break-even" value={formatPrice(trade.breakEvenPrice)} mono />
+            )}
+            {trade.targetPrice != null && (
+              <DetailRow label="Aktueller Ziel-Exit" value={formatPrice(trade.targetPrice)} mono />
+            )}
             <DetailRow label="Haltedauer" value={formatDuration(durationEnd - trade.timestamp)} />
           </CardContent>
         </Card>
@@ -104,6 +112,13 @@ export default async function TradeDetailPage({
               Die durchgezogene Linie zeigt den Marktpreis. Die gestrichelten Linien markieren
               tatsächlichen Entry und – falls vorhanden – Exit.
             </p>
+            {trade.targetPrice != null && (
+              <p>
+                Die grüne Ziel-Linie zeigt die heute gültige Mindestschwelle. Sie verändert nicht
+                den historischen Exit, macht aber sichtbar, wo der Trade nach der aktuellen Regel
+                frühestens geschlossen würde.
+              </p>
+            )}
             <p>
               Das Trade-Ergebnis berücksichtigt die simulierten Gebühren. Die reine Kursbewegung
               kann deshalb vom Netto-PnL abweichen.

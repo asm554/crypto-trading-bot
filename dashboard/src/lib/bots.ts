@@ -160,6 +160,8 @@ export type TradeDetail = TradeRow & {
   latestPrice: number;
   highPrice: number;
   lowPrice: number;
+  targetPrice: number | null;
+  breakEvenPrice: number | null;
 };
 
 export type EquityPoint = {
@@ -424,6 +426,8 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
   }
   const prices = priceSeries.map((point) => point.price);
   const latestPrice = row.exitPrice ?? prices[prices.length - 1] ?? row.entryPrice;
+  const targetPct = meta?.key === "freqtrade" ? 0.06 : meta?.key === "futures_grid" ? 0.011 : null;
+  const roundTripFee = meta?.key === "freqtrade" ? 0.0025 : null;
   return {
     ...row,
     marketQuestion: raw.market_question,
@@ -432,6 +436,10 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
     latestPrice,
     highPrice: Math.max(...prices, row.entryPrice, latestPrice),
     lowPrice: Math.min(...prices, row.entryPrice, latestPrice),
+    targetPrice: targetPct == null ? null : row.entryPrice * (1 + targetPct),
+    breakEvenPrice: roundTripFee == null
+      ? null
+      : row.entryPrice * (1 + roundTripFee) / (1 - roundTripFee),
   };
 }
 
