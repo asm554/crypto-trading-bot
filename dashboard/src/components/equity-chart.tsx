@@ -26,6 +26,7 @@ const config = {
   hodl: { label: "Der HODLer", color: "var(--bot-hodl)" },
   freqtrade: { label: "Freqtrade", color: "var(--bot-freqtrade)" },
   futures: { label: "Der Hebler", color: "var(--bot-futures)" },
+  futures_grid: { label: "Treppensteiger Turbo", color: "var(--bot-futures-grid)" },
 } satisfies ChartConfig;
 
 // Bei 6 Linien reicht Farbe allein nicht (Farbfehlsichtigkeit) — jede Linie
@@ -44,6 +45,7 @@ const DASH: Record<keyof typeof config, string | undefined> = {
   hodl: "14 2",
   freqtrade: "6 2",
   futures: "10 2",
+  futures_grid: "12 2 2 2",
 };
 
 export function EquityChart({

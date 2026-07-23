@@ -24,7 +24,7 @@ export default function SettingsPage() {
         <p>
           Alle Bots handeln im <span className="font-medium text-foreground">Papier-Modus</span> — es
           wird kein echtes Geld eingesetzt. Das Standard-Battle startet mit 100&nbsp;€; der separat
-          gewertete Futures-Bot und Freqtrade starten mit 1.000&nbsp;€.
+          gewertete Treppensteiger Turbo und Freqtrade starten mit 1.000&nbsp;€.
         </p>
       </div>
 

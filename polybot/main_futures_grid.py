@@ -30,20 +30,20 @@ def _env_float(name: str, default: str) -> float:
 
 async def main() -> None:
     await init_db()
-    await mark_bot_started("futures")
+    await mark_bot_started("futures_grid")
     bot = FuturesGridBot(
-        initial_capital_eur=_env_float("FUT_BUDGET", "1000"),
-        leverage=_env_float("FUT_LEVERAGE", "2"),
-        order_margin_eur=_env_float("FUT_ORDER_MARGIN_EUR", "15"),
-        grid_step_pct=_env_float("FUT_GRID_STEP_PCT", "0.8"),
-        take_profit_pct=_env_float("FUT_TAKE_PROFIT_PCT", "1.1"),
-        max_safety_orders=int(os.getenv("FUT_MAX_SAFETY_ORDERS", "50")),
-        maintenance_margin_pct=_env_float("FUT_MAINTENANCE_MARGIN_PCT", "5"),
-        margin_guard_ratio=_env_float("FUT_MARGIN_GUARD_RATIO", "1.25"),
-        taker_fee_rate=_env_float("FUT_TAKER_FEE_RATE", "0.0005"),
-        funding_rate_8h=_env_float("FUT_FUNDING_RATE_8H", "0.0001"),
-        scan_interval_sec=int(os.getenv("FUT_SCAN_INTERVAL_SEC", "30")),
-        paper_mode=os.getenv("FUT_PAPER_MODE", "true").lower() == "true",
+        initial_capital_eur=_env_float("GRIDFUT_BUDGET", "1000"),
+        leverage=_env_float("GRIDFUT_LEVERAGE", "2"),
+        order_margin_eur=_env_float("GRIDFUT_ORDER_MARGIN_EUR", "15"),
+        grid_step_pct=_env_float("GRIDFUT_GRID_STEP_PCT", "0.8"),
+        take_profit_pct=_env_float("GRIDFUT_TAKE_PROFIT_PCT", "1.1"),
+        max_safety_orders=int(os.getenv("GRIDFUT_MAX_SAFETY_ORDERS", "50")),
+        maintenance_margin_pct=_env_float("GRIDFUT_MAINTENANCE_MARGIN_PCT", "5"),
+        margin_guard_ratio=_env_float("GRIDFUT_MARGIN_GUARD_RATIO", "1.25"),
+        taker_fee_rate=_env_float("GRIDFUT_TAKER_FEE_RATE", "0.0005"),
+        funding_rate_8h=_env_float("GRIDFUT_FUNDING_RATE_8H", "0.0001"),
+        scan_interval_sec=int(os.getenv("GRIDFUT_SCAN_INTERVAL_SEC", "30")),
+        paper_mode=os.getenv("GRIDFUT_PAPER_MODE", "true").lower() == "true",
     )
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -54,7 +54,7 @@ async def main() -> None:
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     await bot.maybe_snapshot(force=True)
-    await mark_bot_stopped("futures")
+    await mark_bot_stopped("futures_grid")
 
 
 if __name__ == "__main__":

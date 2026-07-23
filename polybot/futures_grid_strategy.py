@@ -27,10 +27,10 @@ from polybot.paper_db import (
 
 logger = logging.getLogger(__name__)
 
-BOT_KEY = "futures"
-PREFIX = "FUT_"
+BOT_KEY = "futures_grid"
+PREFIX = "GRIDFUT_"
 PAIR = "ETHEUR"
-STATE_PATH = Path(DB_PATH).resolve().parent / "futures_state.json"
+STATE_PATH = Path(DB_PATH).resolve().parent / "futures_grid_state.json"
 
 
 class FuturesGridBot:

@@ -30,11 +30,11 @@ export default async function OverviewPage() {
     if (a.hasData !== b.hasData) return a.hasData ? -1 : 1;
     return b.equityEur - a.equityEur;
   });
-  const separateKeys = new Set(["hodl", "futures", "freqtrade"]);
+  const separateKeys = new Set(["hodl", "futures", "futures_grid", "freqtrade"]);
   const competingBots = rankedBots.filter((bot) => bot.hasData && !separateKeys.has(bot.key));
   const competitiveRankedBots = rankedBots.filter((bot) => !separateKeys.has(bot.key));
   const benchmarkBots = rankedBots.filter((bot) => bot.key === "hodl");
-  const leveragedBots = rankedBots.filter((bot) => bot.key === "futures");
+  const leveragedBots = rankedBots.filter((bot) => bot.key === "futures" || bot.key === "futures_grid");
   const externalBots = rankedBots.filter((bot) => bot.key === "freqtrade");
   const leader = competingBots[0];
   const runnerUp = competingBots[1];
@@ -139,7 +139,7 @@ export default async function OverviewPage() {
               <CardTitle className="font-heading text-base font-bold">Hebel-Equity</CardTitle>
             </CardHeader>
             <CardContent>
-              <EquityChart data={equity} includeKeys={["futures"]} />
+              <EquityChart data={equity} includeKeys={["futures", "futures_grid"]} />
             </CardContent>
           </Card>
         </section>

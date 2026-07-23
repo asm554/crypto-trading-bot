@@ -143,6 +143,8 @@
   --bot-hodl: oklch(0.72 0.14 285);
   --bot-freqtrade: oklch(0.76 0.13 80);
   --bot-futures: oklch(0.74 0.16 25);
+  --bot-futures-grid: oklch(0.8 0.17 55);
+  --bot-futures_grid: var(--bot-futures-grid);
   --up: oklch(0.78 0.16 160);
   --down: oklch(0.68 0.2 25);
 }

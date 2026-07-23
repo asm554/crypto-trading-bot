@@ -7,7 +7,7 @@ import "server-only";
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl" | "freqtrade" | "futures";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid";
 
 type BotMeta = {
   key: BotKey;
@@ -101,11 +101,12 @@ export const BOTS: BotMeta[] = [
   },
   { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", prefix: "HODL_", tagline: "Investiert woechentlich regelbasiert in BTC, ETH und SOL und behaelt einen dauerhaften Kern.", startingCapitalEur: 100 },
   { key: "freqtrade", name: "Freqtrade", nickname: "Freqtrade", prefix: "FT_", tagline: "Read-only Paper-Trading-Daten aus der separaten Freqtrade-Instanz.", startingCapitalEur: 1000 },
+  { key: "futures", name: "Futures", nickname: "Der Hebler", prefix: "FUT_", tagline: "Paper-Trading mit Kraken Futures und begrenztem Hebel.", startingCapitalEur: 100 },
   {
-    key: "futures",
+    key: "futures_grid",
     name: "2× Futures Grid",
     nickname: "Der Treppensteiger Turbo",
-    prefix: "FUT_",
+    prefix: "GRIDFUT_",
     tagline: "Kauft ETH in 0,8-%-Stufen mit 2× Paper-Hebel und fest begrenzter isolierter Margin.",
     startingCapitalEur: 1000,
   },
@@ -162,6 +163,7 @@ export type EquityPoint = {
   hodl: number | null;
   freqtrade: number | null;
   futures: number | null;
+  futures_grid: number | null;
 };
 
 type RawTrade = {
@@ -290,7 +292,7 @@ function toTradeRow(r: RawTrade): TradeRow {
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
   const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout"
     ? rest.split("@")[0]
-    : meta?.key === "hodl" || meta?.key === "futures"
+    : meta?.key === "hodl" || meta?.key === "futures" || meta?.key === "futures_grid"
       ? rest.split("_")[0]
       : rest;
   return {
@@ -326,7 +328,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null, freqtrade: null, futures: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -354,12 +356,12 @@ export function getSettings(): SettingsView {
     { label: "Gebühr pro Kauf/Verkauf", value: "0.40 %", hint: "Wird bei jedem Trade abgezogen (Kraken Taker)." },
     { label: "Gebühr (Maker)", value: "0.16 %", hint: "Falls als Maker gehandelt wird." },
     { label: "Modus", value: "Papierhandel", hint: "Es wird kein echtes Geld eingesetzt." },
-    { label: "Startkapital", value: "100 € Standard-Battle; 1.000 € Futures/Freqtrade" },
+    { label: "Startkapital", value: "100 € Standard-Battle/Hebler; 1.000 € Treppensteiger/Freqtrade" },
   ];
 
   const strategies: StrategyGroup[] = [
     {
-      key: "futures",
+      key: "futures_grid",
       name: "2× Futures Grid",
       nickname: "Der Treppensteiger Turbo",
       purpose: "Testet die ETH-Nachkaufstrategie aus dem Video mit Hebel, aber ohne echtes Geld und ohne nachträgliches Margin-Nachschießen.",
