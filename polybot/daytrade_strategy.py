@@ -85,6 +85,8 @@ class DaytradeBot:
         cooldown_sec: int = 2 * 3600,
         paper_mode: bool = True,
         snapshot_interval_sec: int = 3600,
+        pullback_min_pct: float = -1.75,
+        pullback_max_pct: float = 0.50,
     ):
         self.initial_capital_eur = float(initial_capital_eur)
         self.capital_remaining = float(initial_capital_eur)
@@ -104,6 +106,8 @@ class DaytradeBot:
         self.cooldown_sec = int(cooldown_sec)
         self.paper_mode = bool(paper_mode)
         self.snapshot_interval_sec = int(snapshot_interval_sec)
+        self.pullback_min_pct = float(pullback_min_pct)
+        self.pullback_max_pct = float(pullback_max_pct)
         if not self.paper_mode:
             logger.warning("Daytrade live mode is intentionally not implemented")
             raise NotImplementedError("DaytradeBot is paper-only")
@@ -279,7 +283,12 @@ class DaytradeBot:
             if ch_short is None:
                 logger.info("⏭️ DAY %s: keine %dh-OHLC", pair, self.lookback_hours)
                 continue
+            ch1 = await rolling_change_pct(pair, lookback_bars=1, interval_min=LOOKBACK_INTERVAL_MIN)
+            if ch1 is None or not (self.pullback_min_pct <= ch1 <= self.pullback_max_pct):
+                logger.info("⏭️ DAY %s: 1h-Pullback %.2f%% nicht in %.2f..%.2f%%", pair, ch1 if ch1 is not None else -999.0, self.pullback_min_pct, self.pullback_max_pct)
+                continue
             snap["change_pct"] = ch_short
+            snap["pullback_pct"] = ch1
             snap["score"] = ch_short * math.log10(max(snap["volume_eur"], 1.0))
             if not (self.entry_change_pct <= snap["change_pct"] <= self.entry_max_change_pct):
                 logger.info("⏭️ DAY %s: Change %.2f%% nicht in %.2f..%.2f%%", pair, snap["change_pct"], self.entry_change_pct, self.entry_max_change_pct)
@@ -316,7 +325,7 @@ class DaytradeBot:
             self.portfolio[pair] = {"shares": shares, "cost_basis": amount, "entry_price": price, "entry_ts": time.time(), "peak_price": last, "trade_id": trade_id}
             self.trade_count += 1
             opened.append({"pair": pair, "amount": amount, "price": price, "volume_ratio": snap.get("volume_ratio")})
-            logger.info("📝 DAY Entry %s: %.2f€ @ %.6f€ (Last %.6f€) | %dh %+0.2f%% | rel. Volumen %s", pair, amount, price, last, self.lookback_hours, snap["change_pct"], f"{snap['volume_ratio']:.2f}x" if snap.get("volume_ratio") is not None else "off")
+            logger.info("📝 DAY Entry %s: %.2f€ @ %.6f€ (Last %.6f€) | %dh %+0.2f%% | 1h %+0.2f%% Pullback | rel. Volumen %s", pair, amount, price, last, self.lookback_hours, snap["change_pct"], snap["pullback_pct"], f"{snap['volume_ratio']:.2f}x" if snap.get("volume_ratio") is not None else "off")
         self._save_state()
         return opened
 

@@ -113,6 +113,7 @@ class MeanRevBot:
         cooldown_sec: int = 12 * 3600,
         paper_mode: bool = True,
         snapshot_interval_sec: int = 3600,
+        max_entry_drop_pct: float = 15.0,
     ):
         self.initial_capital_eur = float(initial_capital_eur)
         self.capital_remaining = float(initial_capital_eur)
@@ -135,6 +136,7 @@ class MeanRevBot:
         self.cooldown_sec = int(cooldown_sec)
         self.paper_mode = bool(paper_mode)
         self.snapshot_interval_sec = int(snapshot_interval_sec)
+        self.max_entry_drop_pct = float(max_entry_drop_pct)
         if not self.paper_mode:
             logger.warning("MeanRev live mode is intentionally not implemented")
             raise NotImplementedError("MeanRevBot is paper-only")
@@ -285,8 +287,8 @@ class MeanRevBot:
                 logger.info("⏭️ REV %s: keine 24h-OHLC", pair)
                 continue
             snap["change_pct"] = ch24
-            if snap["change_pct"] > -self.entry_drop_pct:
-                logger.info("⏭️ REV %s: Drop %.2f%% > -%.2f%%", pair, snap["change_pct"], self.entry_drop_pct)
+            if snap["change_pct"] > -self.entry_drop_pct or snap["change_pct"] < -self.max_entry_drop_pct:
+                logger.info("⏭️ REV %s: Drop %.2f%% außerhalb %.2f..%.2f%%", pair, snap["change_pct"], -self.max_entry_drop_pct, -self.entry_drop_pct)
                 continue
             pre.append(snap)
         opened = []

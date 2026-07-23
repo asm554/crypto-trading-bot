@@ -77,7 +77,7 @@ def test_scan_entries_uses_short_lookback_not_24h(monkeypatch, tmp_path):
 
     async def fake_rolling(pair, lookback_bars=24, interval_min=60, **kwargs):
         seen_calls.append((pair, lookback_bars, interval_min))
-        return 10.0
+        return 0.0 if lookback_bars == 1 else 10.0
 
     monkeypatch.setattr(daytrade_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
     monkeypatch.setattr(daytrade_strategy, "rolling_change_pct", fake_rolling)
@@ -109,7 +109,7 @@ def test_scan_entries_fills_at_ask_not_last(monkeypatch, tmp_path):
         return {"SOLEUR": _valid_ticker(open_price="100", last="110", vol24="10000", vwap24="110", bid="108", ask="112")}
 
     async def fake_rolling(_pair, *args, **kwargs):
-        return 10.0
+        return 0.0 if kwargs.get("lookback_bars") == 1 else 10.0
 
     monkeypatch.setattr(daytrade_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
     monkeypatch.setattr(daytrade_strategy, "rolling_change_pct", fake_rolling)
@@ -140,7 +140,7 @@ def test_scan_entries_rejects_weak_relative_volume(monkeypatch, tmp_path):
         return {"SOLEUR": _valid_ticker(open_price="100", last="110", vol24="10000", vwap24="110")}
 
     async def fake_rolling(_pair, *args, **kwargs):
-        return 10.0
+        return 0.0 if kwargs.get("lookback_bars") == 1 else 10.0
 
     async def fake_fetch_ohlc(_pair, _interval_min=60):
         rows = [(float(i), 1.0, 1.0, 1.0, 1.0, 1.0, 100.0) for i in range(20)]

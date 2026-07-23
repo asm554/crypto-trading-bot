@@ -35,6 +35,7 @@ MAX_OPEN_POSITIONS = int(os.getenv("REV_MAX_OPEN_POSITIONS", "3"))
 TAKE_PROFIT_PCT = float(os.getenv("REV_TAKE_PROFIT_PCT", "4.0"))
 STOP_LOSS_PCT = float(os.getenv("REV_STOP_LOSS_PCT", "5.0"))
 MAX_HOLD_H = float(os.getenv("REV_MAX_HOLD_H", "96"))
+MAX_ENTRY_DROP_PCT = float(os.getenv("REV_MAX_ENTRY_DROP_PCT", "15.0"))
 COOLDOWN_H = float(os.getenv("REV_COOLDOWN_H", "12"))
 PAPER_MODE = os.getenv("REV_PAPER_MODE", "true").lower() == "true"
 
@@ -60,6 +61,7 @@ async def main():
         stop_loss_pct=STOP_LOSS_PCT,
         max_hold_sec=int(MAX_HOLD_H * 3600),
         cooldown_sec=int(COOLDOWN_H * 3600),
+        max_entry_drop_pct=MAX_ENTRY_DROP_PCT,
         paper_mode=PAPER_MODE,
     )
     stop = asyncio.Event()

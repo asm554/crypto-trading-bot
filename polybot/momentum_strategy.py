@@ -13,7 +13,7 @@ from pathlib import Path
 
 from polybot import config
 from polybot import paper_db as paper_db_module
-from polybot.dca_strategy import CANDIDATE_PAIRS, PAIR_MAP, extract_quote, fetch_ticker_data, rolling_24h_change_pct
+from polybot.dca_strategy import CANDIDATE_PAIRS, PAIR_MAP, extract_quote, fetch_ticker_data, rolling_24h_change_pct, rolling_change_pct
 from polybot.paper_db import get_open_trades_by_prefix, log_equity_snapshot, log_paper_trade, resolve_trade
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,8 @@ class MomentumBot:
         cooldown_sec: int = 6 * 3600,
         paper_mode: bool = True,
         snapshot_interval_sec: int = 3600,
+        pullback_min_pct: float = -1.5,
+        pullback_max_pct: float = 0.75,
     ):
         self.initial_capital_eur = float(initial_capital_eur)
         self.capital_remaining = float(initial_capital_eur)
@@ -52,6 +54,8 @@ class MomentumBot:
         self.cooldown_sec = int(cooldown_sec)
         self.paper_mode = bool(paper_mode)
         self.snapshot_interval_sec = int(snapshot_interval_sec)
+        self.pullback_min_pct = float(pullback_min_pct)
+        self.pullback_max_pct = float(pullback_max_pct)
         if not self.paper_mode:
             logger.warning("Momentum live mode is intentionally not implemented")
             raise NotImplementedError("MomentumBot is paper-only")
@@ -226,7 +230,12 @@ class MomentumBot:
             if ch24 is None:
                 logger.info("⏭️ MOM %s: keine 24h-OHLC", pair)
                 continue
+            ch1 = await rolling_change_pct(pair, lookback_bars=1, interval_min=60)
+            if ch1 is None or not (self.pullback_min_pct <= ch1 <= self.pullback_max_pct):
+                logger.info("⏭️ MOM %s: 1h-Pullback %.2f%% nicht in %.2f..%.2f%%", pair, ch1 if ch1 is not None else -999.0, self.pullback_min_pct, self.pullback_max_pct)
+                continue
             snap["change_pct"] = ch24
+            snap["pullback_pct"] = ch1
             snap["score"] = ch24 * math.log10(max(snap["volume_eur"], 1.0))
             if not (self.entry_change_pct <= snap["change_pct"] <= self.entry_max_change_pct):
                 logger.info("⏭️ MOM %s: Change %.2f%% nicht in %.2f..%.2f%%", pair, snap["change_pct"], self.entry_change_pct, self.entry_max_change_pct)
@@ -254,7 +263,7 @@ class MomentumBot:
             self.portfolio[pair] = {"shares": shares, "cost_basis": amount, "entry_price": price, "entry_ts": time.time(), "peak_price": last, "trade_id": trade_id}
             self.trade_count += 1
             opened.append({"pair": pair, "amount": amount, "price": price})
-            logger.info("📝 MOM Entry %s: %.2f€ @ %.6f€ (Last %.6f€) | 24h %+0.2f%%", pair, amount, price, last, snap["change_pct"])
+            logger.info("📝 MOM Entry %s: %.2f€ @ %.6f€ (Last %.6f€) | 24h %+0.2f%% | 1h %+0.2f%% Pullback", pair, amount, price, last, snap["change_pct"], snap["pullback_pct"])
         self._save_state()
         return opened
 

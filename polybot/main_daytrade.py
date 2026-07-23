@@ -32,6 +32,8 @@ MAX_OPEN_POSITIONS = int(os.getenv("DAY_MAX_OPEN_POSITIONS", "4"))
 TRAILING_STOP_PCT = float(os.getenv("DAY_TRAILING_STOP_PCT", "1.5"))
 HARD_STOP_PCT = float(os.getenv("DAY_HARD_STOP_PCT", "3.0"))
 MAX_HOLD_H = float(os.getenv("DAY_MAX_HOLD_H", "6"))
+PULLBACK_MIN_PCT = float(os.getenv("DAY_PULLBACK_MIN_PCT", "-1.75"))
+PULLBACK_MAX_PCT = float(os.getenv("DAY_PULLBACK_MAX_PCT", "0.50"))
 COOLDOWN_H = float(os.getenv("DAY_COOLDOWN_H", "2"))
 PAPER_MODE = os.getenv("DAY_PAPER_MODE", "true").lower() == "true"
 
@@ -54,6 +56,8 @@ async def main():
         hard_stop_pct=HARD_STOP_PCT,
         max_hold_sec=int(MAX_HOLD_H * 3600),
         cooldown_sec=int(COOLDOWN_H * 3600),
+        pullback_min_pct=PULLBACK_MIN_PCT,
+        pullback_max_pct=PULLBACK_MAX_PCT,
         paper_mode=PAPER_MODE,
     )
     stop = asyncio.Event()
