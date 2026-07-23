@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Clock3, Database, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Clock3, Database, Target, TrendingDown, TrendingUp } from "lucide-react";
 import { getTradeDetail } from "@/lib/bots";
 import { TradePriceChart } from "@/components/trade-price-chart";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,10 @@ export default async function TradeDetailPage({
     ? ((trade.latestPrice - trade.entryPrice) / trade.entryPrice) * 100
     : 0;
   const durationEnd = trade.resolvedAt ?? trade.priceSeries.at(-1)?.t ?? trade.timestamp;
+  const violatesCurrentExitRule = trade.resolved
+    && trade.exitPrice != null
+    && trade.breakEvenPrice != null
+    && trade.exitPrice < trade.breakEvenPrice;
 
   return (
     <div className="flex flex-col gap-6">
@@ -61,6 +65,40 @@ export default async function TradeDetailPage({
         />
       </div>
 
+      {trade.targetPrice != null && trade.breakEvenPrice != null && (
+        <Card className={cn("overflow-hidden", violatesCurrentExitRule && "border-amber-500/40")}>
+          <CardContent className="grid gap-4 py-4 md:grid-cols-[auto_1fr_1fr_1fr] md:items-center">
+            <div className={cn(
+              "flex size-10 items-center justify-center rounded-full",
+              violatesCurrentExitRule ? "bg-amber-500/15 text-amber-400" : "bg-emerald-500/15 text-emerald-400",
+            )}>
+              {violatesCurrentExitRule ? <AlertTriangle className="size-5" /> : <Target className="size-5" />}
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Gebühren-Break-even</div>
+              <div className="mt-1 font-mono font-semibold">{formatPrice(trade.breakEvenPrice)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Aktuelle Exit-Regel</div>
+              <div className="mt-1 font-mono font-semibold text-emerald-400">
+                {formatPrice(trade.targetPrice)} ({signedPct((trade.targetPrice / trade.entryPrice - 1) * 100)})
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Bewertung dieses Exits</div>
+              <div className={cn(
+                "mt-1 text-sm font-semibold",
+                violatesCurrentExitRule ? "text-amber-400" : "text-emerald-400",
+              )}>
+                {violatesCurrentExitRule
+                  ? "Alte Regel · heute nicht mehr zulässig"
+                  : "Entspricht der aktuellen Regel"}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="overflow-hidden">
         <CardHeader className="border-b">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -78,7 +116,6 @@ export default async function TradeDetailPage({
             exitPrice={trade.exitPrice}
             entryTs={trade.timestamp}
             exitTs={trade.resolvedAt}
-            targetPrice={trade.targetPrice}
             breakEvenPrice={trade.breakEvenPrice}
           />
         </CardContent>
@@ -112,17 +149,16 @@ export default async function TradeDetailPage({
               Die durchgezogene Linie zeigt den Marktpreis. Die gestrichelten Linien markieren
               tatsächlichen Entry und – falls vorhanden – Exit.
             </p>
-            {trade.targetPrice != null && (
-              <p>
-                Die grüne Ziel-Linie zeigt die heute gültige Mindestschwelle. Sie verändert nicht
-                den historischen Exit, macht aber sichtbar, wo der Trade nach der aktuellen Regel
-                frühestens geschlossen würde.
-              </p>
-            )}
             <p>
               Das Trade-Ergebnis berücksichtigt die simulierten Gebühren. Die reine Kursbewegung
               kann deshalb vom Netto-PnL abweichen.
             </p>
+            {violatesCurrentExitRule && (
+              <p className="font-medium text-amber-400">
+                Dieser Trade stammt aus der früheren Konfiguration. Die heute aktive +6-%-Regel
+                hätte diesen Exit unterhalb des Break-even blockiert.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

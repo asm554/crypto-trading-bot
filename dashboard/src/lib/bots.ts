@@ -350,7 +350,8 @@ const KRAKEN_PAIR_MAP: Record<string, string> = {
 };
 
 async function fetchSpotPriceSeries(pair: string, since: number): Promise<PricePoint[]> {
-  const requested = KRAKEN_PAIR_MAP[pair] ?? pair;
+  const normalizedPair = pair.replaceAll("/", "").replaceAll("-", "");
+  const requested = KRAKEN_PAIR_MAP[normalizedPair] ?? normalizedPair;
   try {
     const params = new URLSearchParams({
       pair: requested,
@@ -411,7 +412,7 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
     const symbol = rest.split("_").slice(0, 2).join("_");
     priceSeries = await fetchFuturesPriceSeries(symbol);
     priceSource = "Kraken Futures · Mark Price · 1h";
-  } else if (!["memecoin", "pumpfun", "pumpfun_v2", "scout", "freqtrade"].includes(meta?.key ?? "")) {
+  } else if (!["memecoin", "pumpfun", "pumpfun_v2", "scout"].includes(meta?.key ?? "")) {
     priceSeries = await fetchSpotPriceSeries(row.pair, raw.timestamp - 6 * 3600);
     priceSource = "Kraken Spot · OHLC · 1h";
   }
@@ -423,6 +424,12 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
       { t: raw.timestamp, price: row.entryPrice },
       { t: endTs, price: row.exitPrice ?? row.entryPrice },
     ];
+  } else {
+    priceSeries.push({ t: raw.timestamp, price: row.entryPrice });
+    if (row.resolvedAt && row.exitPrice) {
+      priceSeries.push({ t: row.resolvedAt, price: row.exitPrice });
+    }
+    priceSeries.sort((a, b) => a.t - b.t);
   }
   const prices = priceSeries.map((point) => point.price);
   const latestPrice = row.exitPrice ?? prices[prices.length - 1] ?? row.entryPrice;

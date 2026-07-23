@@ -27,7 +27,6 @@ export function TradePriceChart({
   exitPrice,
   entryTs,
   exitTs,
-  targetPrice,
   breakEvenPrice,
 }: {
   data: PricePoint[];
@@ -35,11 +34,11 @@ export function TradePriceChart({
   exitPrice: number | null;
   entryTs: number;
   exitTs: number | null;
-  targetPrice: number | null;
   breakEvenPrice: number | null;
 }) {
   const visibleEntry = nearestPoint(data, entryTs);
   const visibleExit = exitTs ? nearestPoint(data, exitTs) : null;
+  const spanSeconds = Math.max(0, (data.at(-1)?.t ?? 0) - (data[0]?.t ?? 0));
 
   return (
     <ChartContainer config={config} className="h-[320px] w-full">
@@ -51,10 +50,15 @@ export function TradePriceChart({
           axisLine={false}
           minTickGap={45}
           tickFormatter={(value) =>
-            new Date(Number(value) * 1000).toLocaleDateString("de-DE", {
-              day: "2-digit",
-              month: "2-digit",
-            })
+            spanSeconds <= 48 * 3600
+              ? new Date(Number(value) * 1000).toLocaleTimeString("de-DE", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : new Date(Number(value) * 1000).toLocaleDateString("de-DE", {
+                  day: "2-digit",
+                  month: "2-digit",
+                })
           }
         />
         <YAxis
@@ -62,7 +66,7 @@ export function TradePriceChart({
           tickLine={false}
           axisLine={false}
           width={70}
-          tickFormatter={(value) => Number(value).toLocaleString("de-DE", { maximumFractionDigits: 2 })}
+          tickFormatter={(value) => formatAxisPrice(Number(value))}
         />
         <ChartTooltip
           content={
@@ -96,15 +100,6 @@ export function TradePriceChart({
             label={{ value: "Gebühren-Break-even", fill: "var(--muted-foreground)", position: "insideTopRight" }}
           />
         )}
-        {targetPrice != null && (
-          <ReferenceLine
-            y={targetPrice}
-            stroke="var(--bot-arb)"
-            strokeDasharray="8 4"
-            ifOverflow="extendDomain"
-            label={{ value: "Ziel-Exit", fill: "var(--bot-arb)", position: "insideTopLeft" }}
-          />
-        )}
         <Line
           dataKey="price"
           type="monotone"
@@ -136,6 +131,14 @@ export function TradePriceChart({
       </LineChart>
     </ChartContainer>
   );
+}
+
+function formatAxisPrice(value: number): string {
+  const digits = value < 1 ? 5 : value < 10 ? 4 : value < 100 ? 3 : 2;
+  return value.toLocaleString("de-DE", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 }
 
 function nearestPoint(data: PricePoint[], timestamp: number): PricePoint | null {
