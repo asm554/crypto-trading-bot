@@ -1,0 +1,28 @@
+[Unit]
+Description=Polybot Ultimate (Der Ultimative) — Paper Trading
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/crypto-trading-bot
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_ultimate
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+Environment=ULT_BUDGET=100
+Environment=ULT_INTERVAL_SEC=300
+Environment=ULT_MIN_SCORE=80
+Environment=ULT_VOLUME_MULTIPLIER=1.2
+Environment=ULT_ATR_STOP_MULTIPLIER=2.0
+Environment=ULT_REWARD_RISK=2.0
+Environment=ULT_MAX_RISK_EUR=0.50
+Environment=ULT_MAX_POSITION_EUR=25
+Environment=ULT_MAX_HOLD_H=72
+Environment=ULT_ACCOUNT_LOSS_LIMIT_PCT=10
+Environment=ULT_SNAPSHOT_MIN=15
+Environment=ULT_PAPER_MODE=true
+
+[Install]
+WantedBy=multi-user.target

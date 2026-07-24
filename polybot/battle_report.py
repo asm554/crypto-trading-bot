@@ -31,6 +31,7 @@ BOTS = {
     "pumpfun_v2": {"label": "PumpFun V2", "prefix": "PUMP2_", "state": DATA_DIR / "pumpfun_v2_state.json"},
     "surfer": {"label": "Der Surfer", "prefix": "SURF_", "state": DATA_DIR / "surfer_state.json"},
     "candlestick": {"label": "Kerzenreiter", "prefix": "CND_", "state": DATA_DIR / "candlestick_state.json"},
+    "ultimate": {"label": "Der Ultimative", "prefix": "ULT_", "state": DATA_DIR / "ultimate_state.json"},
     "scout": {"label": "Der Spaeher", "prefix": "SCOUT_", "state": DATA_DIR / "scout_state.json"},
     "hodl": {"label": "Der HODLer", "prefix": "HODL_", "state": DATA_DIR / "hodl_state.json"},
     "futures_grid": {"label": "Treppen Turbo", "prefix": "GRIDFUT_", "state": DATA_DIR / "futures_grid_state.json"},
@@ -244,6 +245,33 @@ async def equity_for_candlestick(prefix: str, state_path: Path, bot: str) -> dic
     return snap
 
 
+async def equity_for_ultimate(prefix: str, state_path: Path, bot: str) -> dict:
+    """Value multiple ledger tranches as one adaptive-bot position."""
+    cash = load_cash(state_path)
+    rows = await get_open_trades_by_prefix(prefix)
+    pairs = sorted({row["market_question"].removeprefix(prefix) for row in rows})
+    ticker = await fetch_ticker_data(pairs) if pairs else {}
+    mtm = unrealized = 0.0
+    for row in rows:
+        pair = row["market_question"].removeprefix(prefix)
+        data = ticker.get(PAIR_MAP.get(pair, pair)) or ticker.get(pair)
+        shares = float(row["size"])
+        entry = float(row["entry_price"])
+        cost = shares * entry
+        if data:
+            bid, _ask = extract_quote(data, float(data["c"][0]))
+            value = shares * bid
+            net = value - cost * FEE - value * FEE
+        else:
+            net = cost
+        mtm += net
+        unrealized += net - cost
+    realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
+    snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(pairs), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
+    await log_equity_snapshot(bot, **snap)
+    return snap
+
+
 def rows_for_bot(bot: str) -> list[tuple]:
     con = sqlite3.connect(DB_PATH, timeout=30.0)
     try:
@@ -354,6 +382,8 @@ async def build_report() -> str:
             snaps[bot] = await equity_for_futures(cfg["prefix"], cfg["state"], bot)
         elif bot == "candlestick":
             snaps[bot] = await equity_for_candlestick(cfg["prefix"], cfg["state"], bot)
+        elif bot == "ultimate":
+            snaps[bot] = await equity_for_ultimate(cfg["prefix"], cfg["state"], bot)
         else:
             snaps[bot] = await equity_for(cfg["prefix"], cfg["state"], bot)
     standard_snaps = {bot: snap for bot, snap in snaps.items() if bot != "futures_grid"}
@@ -366,7 +396,7 @@ async def build_report() -> str:
     lines.append("")
     lines.append("```")
     lines.append("           Equity   offen  real.PnL  Trades  MaxDD  UW(h)  Serie")
-    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "candlestick", "scout", "hodl"]:
+    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "candlestick", "ultimate", "scout", "hodl"]:
         cfg = BOTS[bot]
         s = snaps[bot]
         rows = rows_for_bot(bot)

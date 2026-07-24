@@ -7,7 +7,7 @@ import "server-only";
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "candlestick" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "candlestick" | "ultimate" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid";
 
 type BotMeta = {
   key: BotKey;
@@ -109,6 +109,14 @@ export const BOTS: BotMeta[] = [
     startingCapitalEur: 100,
   },
   {
+    key: "ultimate",
+    name: "Adaptive Multi-Strategie",
+    nickname: "Der Ultimative",
+    prefix: "ULT_",
+    tagline: "Wechselt je nach Marktphase zwischen Trend, Breakout, Pullback und kontrollierter Mean-Reversion.",
+    startingCapitalEur: 100,
+  },
+  {
     key: "scout",
     name: "New-Pool Scout",
     nickname: "Der Spaeher",
@@ -196,6 +204,7 @@ export type EquityPoint = {
   pumpfun_v2: number | null;
   surfer: number | null;
   candlestick: number | null;
+  ultimate: number | null;
   scout: number | null;
   hodl: number | null;
   freqtrade: number | null;
@@ -360,6 +369,7 @@ function exitRuleFor(key: BotKey): { feeRate: number | null; targetPct: number |
     case "daytrade": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −1,5 % vom Hoch" };
     case "surfer": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −3 % vom Hoch" };
     case "candlestick": return { feeRate: null, targetPct: null, label: "ATR-Trailing · kein fixer Exit" };
+    case "ultimate": return { feeRate: spotFee, targetPct: null, label: "2R-Teilgewinn · ATR-Trailing" };
     case "hodl": return { feeRate: spotFee, targetPct: null, label: "Langfristig halten · kein Exit" };
     case "futures": return { feeRate: null, targetPct: null, label: "Exit gemäß Futures-Regel" };
     case "arb": return { feeRate: null, targetPct: null, label: "Atomarer Zyklus · kein offener Exit" };
@@ -593,7 +603,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, candlestick: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, candlestick: null, ultimate: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -819,6 +829,29 @@ export function getSettings(): SettingsView {
         { label: "Max. Haltedauer", value: "48 Std." },
         { label: "Verlustpause", value: "24 Std. nach 3 Verlusten" },
         { label: "Kontoverlust-Sperre", value: "−10 %" },
+      ],
+    },
+    {
+      key: "ultimate",
+      name: "Adaptive Multi-Strategie",
+      nickname: "Der Ultimative",
+      purpose: "Wählt abhängig von der Marktphase die passende Long-Strategie für BTC/EUR, ETH/EUR oder SOL/EUR.",
+      currentBehavior: "Handelt Trend-Breakouts und Pullbacks im Aufwärtstrend, kontrollierte Mean-Reversion seitwärts und bleibt im Abwärtstrend oder bei unklarer Lage vollständig draußen.",
+      params: [
+        { label: "Märkte", value: "BTC/EUR, ETH/EUR, SOL/EUR" },
+        { label: "Marktphasen", value: "Aufwärtstrend, seitwärts, abwärts, unklar" },
+        { label: "Mindestscore", value: "80/100" },
+        { label: "Indikatoren", value: "EMA20/50/200, RSI, MACD, ATR und Volumen" },
+        { label: "Setups", value: "Breakout, Pullback oder kontrollierte Mean-Reversion" },
+        { label: "Kerzenmuster", value: "Engulfing, Hammer, Inside-Bar, Morning Star, Three White Soldiers, Tweezer Bottom, Piercing" },
+        { label: "Risiko pro Position", value: "max. 0,50 €" },
+        { label: "Positionsgröße", value: "max. 25 €" },
+        { label: "Nachkauf", value: "maximal 1, risikobegrenzt" },
+        { label: "Netto-CRV", value: "mindestens 2 : 1 nach Gebühren" },
+        { label: "Gewinnsicherung", value: "50 % Teilgewinn bei 2R, Rest per ATR-Trailing" },
+        { label: "Weitere Exits", value: "Break-even, Regime-/Momentumbruch, 72-Std.-Zeitlimit" },
+        { label: "Kontoverlust-Sperre", value: "−10 %" },
+        { label: "Modus", value: "100 % Paper-Trading" },
       ],
     },
     {
