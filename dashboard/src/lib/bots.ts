@@ -158,6 +158,8 @@ export type TradeDetail = TradeRow & {
   priceSeries: PricePoint[];
   priceSource: string;
   latestPrice: number;
+  currentPrice: number | null;
+  currentPriceSource: string | null;
   highPrice: number;
   lowPrice: number;
   targetPrice: number | null;
@@ -378,6 +380,23 @@ async function fetchSpotPriceSeries(pair: string, since: number): Promise<PriceP
   }
 }
 
+async function fetchSpotCurrentPrice(pair: string): Promise<number | null> {
+  const normalizedPair = pair.replaceAll("/", "").replaceAll("-", "");
+  const requested = KRAKEN_PAIR_MAP[normalizedPair] ?? normalizedPair;
+  try {
+    const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${encodeURIComponent(requested)}`, {
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) return null;
+    const payload = await res.json() as { result?: Record<string, { c?: unknown[] }> };
+    const ticker = Object.values(payload.result ?? {})[0];
+    const price = num(ticker?.c?.[0]);
+    return price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchFuturesPriceSeries(symbol: string): Promise<PricePoint[]> {
   try {
     const safeSymbol = encodeURIComponent(symbol);
@@ -398,6 +417,23 @@ async function fetchFuturesPriceSeries(symbol: string): Promise<PricePoint[]> {
   }
 }
 
+async function fetchFuturesCurrentPrice(symbol: string): Promise<number | null> {
+  try {
+    const res = await fetch("https://futures.kraken.com/derivatives/api/v3/tickers", {
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) return null;
+    const payload = await res.json() as {
+      tickers?: Array<{ symbol?: string; markPrice?: number | string; last?: number | string }>;
+    };
+    const ticker = (payload.tickers ?? []).find((candidate) => candidate.symbol === symbol);
+    const price = num(ticker?.markPrice ?? ticker?.last);
+    return price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
   const trades = await fetchAllTrades();
   const raw = trades.find((trade) => trade.id === id);
@@ -407,14 +443,24 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
   const rest = meta ? raw.market_question.slice(meta.prefix.length) : raw.market_question;
   let priceSeries: PricePoint[] = [];
   let priceSource = "Entry-/Exit-Daten";
+  let currentPrice: number | null = null;
+  let currentPriceSource: string | null = null;
 
   if (meta?.key === "futures") {
     const symbol = rest.split("_").slice(0, 2).join("_");
-    priceSeries = await fetchFuturesPriceSeries(symbol);
+    [priceSeries, currentPrice] = await Promise.all([
+      fetchFuturesPriceSeries(symbol),
+      fetchFuturesCurrentPrice(symbol),
+    ]);
     priceSource = "Kraken Futures · Mark Price · 1h";
+    currentPriceSource = currentPrice == null ? null : "Kraken Futures · Live Mark Price";
   } else if (!["memecoin", "pumpfun", "pumpfun_v2", "scout"].includes(meta?.key ?? "")) {
-    priceSeries = await fetchSpotPriceSeries(row.pair, raw.timestamp - 6 * 3600);
+    [priceSeries, currentPrice] = await Promise.all([
+      fetchSpotPriceSeries(row.pair, raw.timestamp - 6 * 3600),
+      fetchSpotCurrentPrice(row.pair),
+    ]);
     priceSource = "Kraken Spot · OHLC · 1h";
+    currentPriceSource = currentPrice == null ? null : "Kraken Spot · Live Ticker";
   }
 
   const endTs = row.resolvedAt ?? Math.floor(Date.now() / 1000);
@@ -441,6 +487,8 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
     priceSeries,
     priceSource,
     latestPrice,
+    currentPrice,
+    currentPriceSource,
     highPrice: Math.max(...prices, row.entryPrice, latestPrice),
     lowPrice: Math.min(...prices, row.entryPrice, latestPrice),
     targetPrice: targetPct == null ? null : row.entryPrice * (1 + targetPct),

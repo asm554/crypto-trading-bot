@@ -50,9 +50,15 @@ export default async function TradeDetailPage({
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Metric label="Entry" value={formatPrice(trade.entryPrice)} />
         <Metric label={trade.resolved ? "Exit" : "Letzter Kurs"} value={formatPrice(trade.latestPrice)} />
+        <Metric
+          label="Aktueller Kurs"
+          value={trade.currentPrice == null ? "nicht verfügbar" : formatPrice(trade.currentPrice)}
+          note={trade.currentPriceSource ?? undefined}
+          tone={trade.currentPrice == null ? undefined : trade.currentPrice >= trade.entryPrice ? "up" : "down"}
+        />
         <Metric
           label="Kursbewegung"
           value={signedPct(changePct)}
@@ -117,6 +123,7 @@ export default async function TradeDetailPage({
             entryTs={trade.timestamp}
             exitTs={trade.resolvedAt}
             breakEvenPrice={trade.breakEvenPrice}
+            currentPrice={trade.currentPrice}
           />
         </CardContent>
       </Card>
@@ -147,7 +154,8 @@ export default async function TradeDetailPage({
           <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
             <p>
               Die durchgezogene Linie zeigt den Marktpreis. Die gestrichelten Linien markieren
-              tatsächlichen Entry und – falls vorhanden – Exit.
+              tatsächlichen Entry und – falls vorhanden – Exit. Die türkisfarbene Linie zeigt
+              den aktuellen Marktpreis; die graue Linie den Gebühren-Break-even.
             </p>
             <p>
               Das Trade-Ergebnis berücksichtigt die simulierten Gebühren. Die reine Kursbewegung
@@ -170,10 +178,12 @@ function Metric({
   label,
   value,
   tone,
+  note,
 }: {
   label: string;
   value: string;
   tone?: "up" | "down";
+  note?: string;
 }) {
   const Icon = tone === "up" ? TrendingUp : tone === "down" ? TrendingDown : Clock3;
   return (
@@ -188,6 +198,7 @@ function Metric({
           )}>
             {value}
           </div>
+          {note && <div className="mt-1 text-[10px] text-muted-foreground">{note}</div>}
         </div>
         <Icon className={cn(
           "size-5 text-muted-foreground",

@@ -28,6 +28,7 @@ export function TradePriceChart({
   entryTs,
   exitTs,
   breakEvenPrice,
+  currentPrice,
 }: {
   data: PricePoint[];
   entryPrice: number;
@@ -35,6 +36,7 @@ export function TradePriceChart({
   entryTs: number;
   exitTs: number | null;
   breakEvenPrice: number | null;
+  currentPrice: number | null;
 }) {
   const visibleEntry = nearestPoint(data, entryTs);
   const visibleExit = exitTs ? nearestPoint(data, exitTs) : null;
@@ -95,9 +97,20 @@ export function TradePriceChart({
           <ReferenceLine
             y={breakEvenPrice}
             stroke="var(--muted-foreground)"
-            strokeDasharray="2 4"
+            strokeWidth={1.5}
+            strokeDasharray="4 4"
             ifOverflow="extendDomain"
-            label={{ value: "Gebühren-Break-even", fill: "var(--muted-foreground)", position: "insideTopRight" }}
+            label={{ value: `Break-even · ${formatAxisPrice(breakEvenPrice)} €`, fill: "var(--muted-foreground)", position: "insideTopRight" }}
+          />
+        )}
+        {currentPrice != null && (
+          <ReferenceLine
+            y={currentPrice}
+            stroke="var(--bot-memecoin)"
+            strokeWidth={1.5}
+            strokeDasharray="6 3"
+            ifOverflow="extendDomain"
+            label={{ value: `Aktuell · ${formatAxisPrice(currentPrice)} €`, fill: "var(--bot-memecoin)", position: "insideBottomRight" }}
           />
         )}
         <Line
