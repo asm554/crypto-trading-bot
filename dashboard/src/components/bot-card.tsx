@@ -88,6 +88,29 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
         <Stat label="noch offen" value={signedEur(bot.unrealizedPnlEur)} tone={pnlToneClass(bot.unrealizedPnlEur)} />
         <Stat label="Trades gesamt" value={String(bot.tradeCount)} />
 
+        {bot.activePosition ? (
+          <div className="col-span-full mt-1 border-t pt-3">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-xs font-semibold">Aktive Position · {bot.activePosition.pair}</span>
+              <span className="text-xs text-muted-foreground">{bot.openPositions} offen</span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+              <Stat label="Aktueller Kurs" value={bot.activePosition.currentPrice == null ? "—" : price(bot.activePosition.currentPrice)} />
+              <Stat label="Kauf Ø" value={price(bot.activePosition.buyPrice)} />
+              <Stat label="Break-even" value={bot.activePosition.breakEvenPrice == null ? "modellabhängig" : price(bot.activePosition.breakEvenPrice)} />
+              <Stat label="Geplanter Exit" value={bot.activePosition.exitPrice == null ? bot.activePosition.exitPlan : price(bot.activePosition.exitPrice)} />
+            </div>
+            {bot.activePosition.exitPrice != null && (
+              <p className="mt-2 text-xs text-muted-foreground">{bot.activePosition.exitPlan}</p>
+            )}
+          </div>
+        ) : (
+          <div className="col-span-full mt-1 flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
+            <span>Keine offene Position</span>
+            <span>Wartet auf den nächsten Einstieg</span>
+          </div>
+        )}
+
         {isLongTermBenchmark ? (
           <div className="col-span-full mt-1 flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
             <span>Langfristiger Benchmark</span>
@@ -131,4 +154,8 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
       </CardContent>
     </Card>
   );
+}
+
+function price(value: number): string {
+  return `${value.toLocaleString("de-DE", { maximumFractionDigits: value < 1 ? 6 : 2 })} €`;
 }

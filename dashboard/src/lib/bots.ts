@@ -18,6 +18,15 @@ type BotMeta = {
   startingCapitalEur: number;
 };
 
+export type PositionOverview = {
+  pair: string;
+  buyPrice: number;
+  currentPrice: number | null;
+  breakEvenPrice: number | null;
+  exitPrice: number | null;
+  exitPlan: string;
+};
+
 export const BOTS: BotMeta[] = [
   {
     key: "dca",
@@ -132,6 +141,7 @@ export type BotSummary = {
   runtimeStatus: string | null;
   hasData: boolean;
   startingCapitalEur: number;
+  activePosition: PositionOverview | null;
 };
 
 export type TradeRow = {
@@ -249,7 +259,7 @@ function num(v: unknown, fallback = 0): number {
 export async function getBotSummaries(): Promise<BotSummary[]> {
   const [trades, snapshots] = await Promise.all([fetchAllTrades(), fetchAllSnapshots()]);
 
-  return BOTS.map((bot) => {
+  return Promise.all(BOTS.map(async (bot) => {
     const botTrades = trades.filter((t) => t.market_question.startsWith(bot.prefix));
     const openTrades = botTrades.filter((t) => t.resolved_at == null);
     const doneTrades = botTrades.filter((t) => t.resolved_at != null);
@@ -279,6 +289,7 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const runtime = runtimeSnapshots[runtimeSnapshots.length - 1];
 
     const totalPnl = equity - startingCapitalEur;
+    const activePosition = await buildPositionOverview(bot, openTrades);
     return {
       key: bot.key,
       name: bot.name,
@@ -299,8 +310,59 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       runtimeStatus: runtime ? "running" : null,
       hasData: botTrades.length > 0 || botSnaps.length > 0,
       startingCapitalEur,
+      activePosition,
     };
-  });
+  }));
+}
+
+async function buildPositionOverview(bot: BotMeta, openTrades: RawTrade[]): Promise<PositionOverview | null> {
+  if (openTrades.length === 0) return null;
+  const primary = openTrades[0];
+  const pair = toTradeRow(primary).pair;
+  const samePair = openTrades.filter((trade) => toTradeRow(trade).pair === pair);
+  const totalShares = samePair.reduce((sum, trade) => sum + num(trade.size), 0);
+  const buyPrice = totalShares > 0
+    ? samePair.reduce((sum, trade) => sum + num(trade.size) * num(trade.price), 0) / totalShares
+    : num(primary.price);
+  const rule = exitRuleFor(bot.key);
+  const currentPrice = await fetchCurrentPriceForBot(bot, primary, pair);
+  return {
+    pair,
+    buyPrice,
+    currentPrice,
+    breakEvenPrice: rule.feeRate == null ? null : buyPrice * (1 + rule.feeRate) / (1 - rule.feeRate),
+    exitPrice: rule.targetPct == null ? null : buyPrice * (1 + rule.targetPct),
+    exitPlan: rule.label,
+  };
+}
+
+function exitRuleFor(key: BotKey): { feeRate: number | null; targetPct: number | null; label: string } {
+  const spotFee = 0.004;
+  switch (key) {
+    case "dca": return { feeRate: spotFee, targetPct: 0.03, label: "+3 % Gewinnziel" };
+    case "meanrev": return { feeRate: spotFee, targetPct: 0.04, label: "+4 % Gewinnziel" };
+    case "futures_grid": return { feeRate: spotFee, targetPct: 0.011, label: "+1,1 % über Durchschnitt" };
+    case "freqtrade": return { feeRate: 0.0025, targetPct: 0.06, label: "+6 % ROI-Regel" };
+    case "memecoin": return { feeRate: null, targetPct: 0.15, label: "+15 % Ziel, dann Trailing" };
+    case "pumpfun": return { feeRate: null, targetPct: 0.30, label: "+30 % Ziel, dann Trailing" };
+    case "pumpfun_v2": return { feeRate: null, targetPct: 0.25, label: "+25 % Ziel, dann Trailing" };
+    case "scout": return { feeRate: null, targetPct: 0.25, label: "+25 % Gewinnziel" };
+    case "momentum": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −2,5 % vom Hoch" };
+    case "daytrade": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −1,5 % vom Hoch" };
+    case "surfer": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −3 % vom Hoch" };
+    case "hodl": return { feeRate: spotFee, targetPct: null, label: "Langfristig halten · kein Exit" };
+    case "futures": return { feeRate: null, targetPct: null, label: "Exit gemäß Futures-Regel" };
+    case "arb": return { feeRate: null, targetPct: null, label: "Atomarer Zyklus · kein offener Exit" };
+  }
+}
+
+async function fetchCurrentPriceForBot(bot: BotMeta, trade: RawTrade, pair: string): Promise<number | null> {
+  if (bot.key === "futures") {
+    const rest = trade.market_question.slice(bot.prefix.length);
+    return fetchFuturesCurrentPrice(rest.split("_").slice(0, 2).join("_"));
+  }
+  if (["memecoin", "pumpfun", "pumpfun_v2", "scout"].includes(bot.key)) return null;
+  return fetchSpotCurrentPrice(pair);
 }
 
 function toTradeRow(r: RawTrade): TradeRow {
