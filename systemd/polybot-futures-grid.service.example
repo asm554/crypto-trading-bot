@@ -1,0 +1,28 @@
+[Unit]
+Description=Polybot Futures Grid (Der Treppensteiger Turbo) — Paper Trading
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/crypto-trading-bot
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_futures_grid
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+Environment=GRIDFUT_BUDGET=1000
+Environment=GRIDFUT_LEVERAGE=2
+Environment=GRIDFUT_ORDER_MARGIN_EUR=15
+Environment=GRIDFUT_GRID_STEP_PCT=0.8
+Environment=GRIDFUT_TAKE_PROFIT_PCT=1.1
+Environment=GRIDFUT_MAX_SAFETY_ORDERS=50
+Environment=GRIDFUT_MAINTENANCE_MARGIN_PCT=5
+Environment=GRIDFUT_MARGIN_GUARD_RATIO=1.25
+Environment=GRIDFUT_TAKER_FEE_RATE=0.0005
+Environment=GRIDFUT_FUNDING_RATE_8H=0.0001
+Environment=GRIDFUT_SCAN_INTERVAL_SEC=30
+Environment=GRIDFUT_PAPER_MODE=true
+
+[Install]
+WantedBy=multi-user.target

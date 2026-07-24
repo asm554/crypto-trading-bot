@@ -7,7 +7,7 @@ import "server-only";
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl" | "freqtrade" | "futures";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid";
 
 type BotMeta = {
   key: BotKey;
@@ -102,6 +102,14 @@ export const BOTS: BotMeta[] = [
   { key: "hodl", name: "Long-Term Allocation", nickname: "Der HODLer", prefix: "HODL_", tagline: "Investiert woechentlich regelbasiert in BTC, ETH und SOL und behaelt einen dauerhaften Kern.", startingCapitalEur: 100 },
   { key: "freqtrade", name: "Freqtrade", nickname: "Freqtrade", prefix: "FT_", tagline: "Read-only Paper-Trading-Daten aus der separaten Freqtrade-Instanz.", startingCapitalEur: 1000 },
   { key: "futures", name: "Futures", nickname: "Der Hebler", prefix: "FUT_", tagline: "Paper-Trading mit Kraken Futures und begrenztem Hebel.", startingCapitalEur: 100 },
+  {
+    key: "futures_grid",
+    name: "2× Futures Grid",
+    nickname: "Der Treppensteiger Turbo",
+    prefix: "GRIDFUT_",
+    tagline: "Kauft ETH in 0,8-%-Stufen mit 2× Paper-Hebel und fest begrenzter isolierter Margin.",
+    startingCapitalEur: 1000,
+  },
 ];
 
 export type BotSummary = {
@@ -138,6 +146,24 @@ export type TradeRow = {
   status: string;
   resolved: boolean;
   pnlEur: number | null;
+  entryPrice: number;
+  exitPrice: number | null;
+  resolvedAt: number | null;
+};
+
+export type PricePoint = { t: number; price: number };
+
+export type TradeDetail = TradeRow & {
+  marketQuestion: string;
+  priceSeries: PricePoint[];
+  priceSource: string;
+  latestPrice: number;
+  currentPrice: number | null;
+  currentPriceSource: string | null;
+  highPrice: number;
+  lowPrice: number;
+  targetPrice: number | null;
+  breakEvenPrice: number | null;
 };
 
 export type EquityPoint = {
@@ -155,6 +181,7 @@ export type EquityPoint = {
   hodl: number | null;
   freqtrade: number | null;
   futures: number | null;
+  futures_grid: number | null;
 };
 
 type RawTrade = {
@@ -168,6 +195,7 @@ type RawTrade = {
   resolved_at: number | null;
   real_pnl: number | null;
   unrealized_pnl: number | null;
+  exit_price: number | null;
 };
 
 type RawSnapshot = {
@@ -281,7 +309,11 @@ function toTradeRow(r: RawTrade): TradeRow {
   // Auflösung, da zwei dynamisch entdeckte Solana-Tokens denselben Namen
   // tragen können) — im Dashboard reicht das Symbol vor dem "@".
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
-  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
+  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout"
+    ? rest.split("@")[0]
+    : meta?.key === "hodl" || meta?.key === "futures" || meta?.key === "futures_grid"
+      ? rest.split("_")[0]
+      : rest;
   return {
     id: r.id,
     botKey: meta?.key ?? "?",
@@ -294,6 +326,9 @@ function toTradeRow(r: RawTrade): TradeRow {
     status: r.status,
     resolved: r.resolved_at != null,
     pnlEur: r.real_pnl == null ? null : round2(num(r.real_pnl)),
+    entryPrice: num(r.price),
+    exitPrice: r.exit_price == null ? null : num(r.exit_price),
+    resolvedAt: r.resolved_at == null ? null : num(r.resolved_at),
   };
 }
 
@@ -308,6 +343,161 @@ export async function getAllTrades(): Promise<TradeRow[]> {
   return trades.map(toTradeRow);
 }
 
+const KRAKEN_PAIR_MAP: Record<string, string> = {
+  XBTEUR: "XXBTZEUR",
+  ETHEUR: "XETHZEUR",
+  LTCEUR: "XLTCZEUR",
+  XRPEUR: "XXRPZEUR",
+  XLMEUR: "XXLMZEUR",
+};
+
+async function fetchSpotPriceSeries(pair: string, since: number): Promise<PricePoint[]> {
+  const normalizedPair = pair.replaceAll("/", "").replaceAll("-", "");
+  const requested = KRAKEN_PAIR_MAP[normalizedPair] ?? normalizedPair;
+  try {
+    const params = new URLSearchParams({
+      pair: requested,
+      interval: "60",
+      since: String(Math.max(0, Math.floor(since))),
+    });
+    const res = await fetch(`https://api.kraken.com/0/public/OHLC?${params}`, {
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) return [];
+    const payload = await res.json() as {
+      result?: Record<string, unknown>;
+    };
+    const rows = Object.entries(payload.result ?? {}).find(([key, value]) => key !== "last" && Array.isArray(value))?.[1];
+    if (!Array.isArray(rows)) return [];
+    return rows.flatMap((row) => {
+      if (!Array.isArray(row)) return [];
+      const t = num(row[0]);
+      const price = num(row[4]);
+      return t > 0 && price > 0 ? [{ t, price }] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function fetchSpotCurrentPrice(pair: string): Promise<number | null> {
+  const normalizedPair = pair.replaceAll("/", "").replaceAll("-", "");
+  const requested = KRAKEN_PAIR_MAP[normalizedPair] ?? normalizedPair;
+  try {
+    const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${encodeURIComponent(requested)}`, {
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) return null;
+    const payload = await res.json() as { result?: Record<string, { c?: unknown[] }> };
+    const ticker = Object.values(payload.result ?? {})[0];
+    const price = num(ticker?.c?.[0]);
+    return price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchFuturesPriceSeries(symbol: string): Promise<PricePoint[]> {
+  try {
+    const safeSymbol = encodeURIComponent(symbol);
+    const res = await fetch(
+      `https://futures.kraken.com/api/charts/v1/mark/${safeSymbol}/1h?count=720`,
+      { next: { revalidate: 300 } },
+    );
+    if (!res.ok) return [];
+    const payload = await res.json() as { candles?: Array<{ time?: number; close?: number | string }> };
+    return (payload.candles ?? []).flatMap((candle) => {
+      const rawTime = num(candle.time);
+      const t = rawTime > 10_000_000_000 ? rawTime / 1000 : rawTime;
+      const price = num(candle.close);
+      return t > 0 && price > 0 ? [{ t, price }] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function fetchFuturesCurrentPrice(symbol: string): Promise<number | null> {
+  try {
+    const res = await fetch("https://futures.kraken.com/derivatives/api/v3/tickers", {
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) return null;
+    const payload = await res.json() as {
+      tickers?: Array<{ symbol?: string; markPrice?: number | string; last?: number | string }>;
+    };
+    const ticker = (payload.tickers ?? []).find((candidate) => candidate.symbol === symbol);
+    const price = num(ticker?.markPrice ?? ticker?.last);
+    return price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
+  const trades = await fetchAllTrades();
+  const raw = trades.find((trade) => trade.id === id);
+  if (!raw) return null;
+  const row = toTradeRow(raw);
+  const meta = BOTS.find((bot) => raw.market_question.startsWith(bot.prefix));
+  const rest = meta ? raw.market_question.slice(meta.prefix.length) : raw.market_question;
+  let priceSeries: PricePoint[] = [];
+  let priceSource = "Entry-/Exit-Daten";
+  let currentPrice: number | null = null;
+  let currentPriceSource: string | null = null;
+
+  if (meta?.key === "futures") {
+    const symbol = rest.split("_").slice(0, 2).join("_");
+    [priceSeries, currentPrice] = await Promise.all([
+      fetchFuturesPriceSeries(symbol),
+      fetchFuturesCurrentPrice(symbol),
+    ]);
+    priceSource = "Kraken Futures · Mark Price · 1h";
+    currentPriceSource = currentPrice == null ? null : "Kraken Futures · Live Mark Price";
+  } else if (!["memecoin", "pumpfun", "pumpfun_v2", "scout"].includes(meta?.key ?? "")) {
+    [priceSeries, currentPrice] = await Promise.all([
+      fetchSpotPriceSeries(row.pair, raw.timestamp - 6 * 3600),
+      fetchSpotCurrentPrice(row.pair),
+    ]);
+    priceSource = "Kraken Spot · OHLC · 1h";
+    currentPriceSource = currentPrice == null ? null : "Kraken Spot · Live Ticker";
+  }
+
+  const endTs = row.resolvedAt ?? Math.floor(Date.now() / 1000);
+  priceSeries = priceSeries.filter((point) => point.t >= raw.timestamp - 6 * 3600 && point.t <= endTs + 6 * 3600);
+  if (priceSeries.length < 2) {
+    priceSeries = [
+      { t: raw.timestamp, price: row.entryPrice },
+      { t: endTs, price: row.exitPrice ?? row.entryPrice },
+    ];
+  } else {
+    priceSeries.push({ t: raw.timestamp, price: row.entryPrice });
+    if (row.resolvedAt && row.exitPrice) {
+      priceSeries.push({ t: row.resolvedAt, price: row.exitPrice });
+    }
+    priceSeries.sort((a, b) => a.t - b.t);
+  }
+  const prices = priceSeries.map((point) => point.price);
+  const latestPrice = row.exitPrice ?? prices[prices.length - 1] ?? row.entryPrice;
+  const targetPct = meta?.key === "freqtrade" ? 0.06 : meta?.key === "futures_grid" ? 0.011 : null;
+  const roundTripFee = meta?.key === "freqtrade" ? 0.0025 : null;
+  return {
+    ...row,
+    marketQuestion: raw.market_question,
+    priceSeries,
+    priceSource,
+    latestPrice,
+    currentPrice,
+    currentPriceSource,
+    highPrice: Math.max(...prices, row.entryPrice, latestPrice),
+    lowPrice: Math.min(...prices, row.entryPrice, latestPrice),
+    targetPrice: targetPct == null ? null : row.entryPrice * (1 + targetPct),
+    breakEvenPrice: roundTripFee == null
+      ? null
+      : row.entryPrice * (1 + roundTripFee) / (1 - roundTripFee),
+  };
+}
+
 export async function getEquitySeries(): Promise<EquityPoint[]> {
   const snapshots = await fetchAllSnapshots();
   const byTime = new Map<number, EquityPoint>();
@@ -315,7 +505,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null, freqtrade: null, futures: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -343,10 +533,26 @@ export function getSettings(): SettingsView {
     { label: "Gebühr pro Kauf/Verkauf", value: "0.40 %", hint: "Wird bei jedem Trade abgezogen (Kraken Taker)." },
     { label: "Gebühr (Maker)", value: "0.16 %", hint: "Falls als Maker gehandelt wird." },
     { label: "Modus", value: "Papierhandel", hint: "Es wird kein echtes Geld eingesetzt." },
-    { label: "Startkapital", value: "100 € je Polybot/Futures; 1.000 € Freqtrade" },
+    { label: "Startkapital", value: "100 € Standard-Battle/Hebler; 1.000 € Treppensteiger/Freqtrade" },
   ];
 
   const strategies: StrategyGroup[] = [
+    {
+      key: "futures_grid",
+      name: "2× Futures Grid",
+      nickname: "Der Treppensteiger Turbo",
+      purpose: "Testet die ETH-Nachkaufstrategie aus dem Video mit Hebel, aber ohne echtes Geld und ohne nachträgliches Margin-Nachschießen.",
+      currentBehavior: "Startet sofort long, legt je 0,8 % Rückgang eine gleich große 2×-Position nach und schließt den Zyklus bei 1,1 % über dem Durchschnitt oder vor der Liquidationszone.",
+      params: [
+        { label: "Startkapital", value: "1.000 €" },
+        { label: "Hebel", value: "2× isoliert" },
+        { label: "Margin je Stufe", value: "15 €", hint: "Entspricht 30 € Positionswert." },
+        { label: "Raster", value: "−0,8 %" },
+        { label: "Max. Nachkäufe", value: "50" },
+        { label: "Gewinnmitnahme", value: "+1,1 %" },
+        { label: "Margin-Wächter", value: "1,25× Maintenance", hint: "Schließt vor der simulierten Liquidation." },
+      ],
+    },
     {
       key: "dca",
       name: "DCA",
