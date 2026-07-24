@@ -150,7 +150,7 @@ export default async function OverviewPage() {
         <CardContent>
           <EquityChart
             data={equity}
-            includeKeys={["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "scout", "hodl"]}
+            includeKeys={["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "candlestick", "scout", "hodl"]}
           />
         </CardContent>
       </Card>

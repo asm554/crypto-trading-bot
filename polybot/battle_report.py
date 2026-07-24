@@ -13,6 +13,7 @@ from polybot.alerts import send_telegram
 from polybot.dca_strategy import PAIR_MAP, extract_quote, fetch_ticker_data
 from polybot.memecoin_strategy import DEFAULT_DEX_FEE_PCT, DEFAULT_SLIPPAGE_PCT, EURUSD_INTERNAL, EURUSD_PAIR, FALLBACK_EUR_USD_RATE, fetch_pairs_by_address
 from polybot.scout_strategy import fetch_scout_prices
+from polybot.candlestick_strategy import SOL_MINT, USDC_MINT, fetch_jupiter_quote
 from polybot.paper_db import DB_PATH, get_open_trades_by_prefix, init_db, log_equity_snapshot, prefix_like_pattern
 
 DATA_DIR = Path(DB_PATH).resolve().parent
@@ -29,6 +30,7 @@ BOTS = {
     "pumpfun": {"label": "Der PumpFun", "prefix": "PUMP_", "state": DATA_DIR / "pumpfun_state.json"},
     "pumpfun_v2": {"label": "PumpFun V2", "prefix": "PUMP2_", "state": DATA_DIR / "pumpfun_v2_state.json"},
     "surfer": {"label": "Der Surfer", "prefix": "SURF_", "state": DATA_DIR / "surfer_state.json"},
+    "candlestick": {"label": "Kerzenreiter", "prefix": "CND_", "state": DATA_DIR / "candlestick_state.json"},
     "scout": {"label": "Der Spaeher", "prefix": "SCOUT_", "state": DATA_DIR / "scout_state.json"},
     "hodl": {"label": "Der HODLer", "prefix": "HODL_", "state": DATA_DIR / "hodl_state.json"},
     "futures_grid": {"label": "Treppen Turbo", "prefix": "GRIDFUT_", "state": DATA_DIR / "futures_grid_state.json"},
@@ -217,6 +219,31 @@ async def equity_for_futures(prefix: str, state_path: Path, bot: str) -> dict:
     return snap
 
 
+async def equity_for_candlestick(prefix: str, state_path: Path, bot: str) -> dict:
+    """Value the SOL/USDC paper position from a read-only Jupiter exit quote."""
+    try:
+        state = json.loads(state_path.read_text())
+    except Exception:
+        state = {}
+    cash = float(state.get("capital_remaining", 100.0))
+    rows = await get_open_trades_by_prefix(prefix)
+    ticker = await fetch_ticker_data([EURUSD_PAIR]) if rows else {}
+    eurusd = ticker.get(EURUSD_INTERNAL) or ticker.get(EURUSD_PAIR)
+    rate = float(eurusd["c"][0]) if eurusd else FALLBACK_EUR_USD_RATE
+    mtm = unrealized = 0.0
+    for row in rows:
+        shares = float(row["size"])
+        cost = shares * float(row["entry_price"])
+        quote = await fetch_jupiter_quote(SOL_MINT, USDC_MINT, round(shares * 1_000_000_000))
+        value = (float(quote.get("otherAmountThreshold") or quote["outAmount"]) / 1_000_000) / rate if quote else cost
+        mtm += value
+        unrealized += value - cost
+    realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
+    snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
+    await log_equity_snapshot(bot, **snap)
+    return snap
+
+
 def rows_for_bot(bot: str) -> list[tuple]:
     con = sqlite3.connect(DB_PATH, timeout=30.0)
     try:
@@ -325,6 +352,8 @@ async def build_report() -> str:
             snaps[bot] = await equity_for_hodl(cfg["prefix"], cfg["state"], bot)
         elif bot == "futures_grid":
             snaps[bot] = await equity_for_futures(cfg["prefix"], cfg["state"], bot)
+        elif bot == "candlestick":
+            snaps[bot] = await equity_for_candlestick(cfg["prefix"], cfg["state"], bot)
         else:
             snaps[bot] = await equity_for(cfg["prefix"], cfg["state"], bot)
     standard_snaps = {bot: snap for bot, snap in snaps.items() if bot != "futures_grid"}
@@ -337,7 +366,7 @@ async def build_report() -> str:
     lines.append("")
     lines.append("```")
     lines.append("           Equity   offen  real.PnL  Trades  MaxDD  UW(h)  Serie")
-    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "scout", "hodl"]:
+    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "candlestick", "scout", "hodl"]:
         cfg = BOTS[bot]
         s = snaps[bot]
         rows = rows_for_bot(bot)

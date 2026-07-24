@@ -139,6 +139,7 @@
   --bot-pumpfun-v2: oklch(0.76 0.16 345);
   --bot-pumpfun_v2: var(--bot-pumpfun-v2);
   --bot-surfer: oklch(0.73 0.16 100);
+  --bot-candlestick: oklch(0.76 0.17 48);
   --bot-scout: oklch(0.72 0.15 20);
   --bot-hodl: oklch(0.72 0.14 285);
   --bot-freqtrade: oklch(0.76 0.13 80);

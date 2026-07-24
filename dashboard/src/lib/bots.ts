@@ -7,7 +7,7 @@ import "server-only";
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "candlestick" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid";
 
 type BotMeta = {
   key: BotKey;
@@ -101,6 +101,14 @@ export const BOTS: BotMeta[] = [
     startingCapitalEur: 100,
   },
   {
+    key: "candlestick",
+    name: "Candlestick-Scoring",
+    nickname: "Der Kerzenreiter",
+    prefix: "CND_",
+    tagline: "Kombiniert Kerzenmuster, Multi-Timeframe-Trend und Momentum mit realistischen Jupiter-Paper-Quotes.",
+    startingCapitalEur: 100,
+  },
+  {
     key: "scout",
     name: "New-Pool Scout",
     nickname: "Der Spaeher",
@@ -187,6 +195,7 @@ export type EquityPoint = {
   pumpfun: number | null;
   pumpfun_v2: number | null;
   surfer: number | null;
+  candlestick: number | null;
   scout: number | null;
   hodl: number | null;
   freqtrade: number | null;
@@ -350,6 +359,7 @@ function exitRuleFor(key: BotKey): { feeRate: number | null; targetPct: number |
     case "momentum": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −2,5 % vom Hoch" };
     case "daytrade": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −1,5 % vom Hoch" };
     case "surfer": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −3 % vom Hoch" };
+    case "candlestick": return { feeRate: null, targetPct: null, label: "ATR-Trailing · kein fixer Exit" };
     case "hodl": return { feeRate: spotFee, targetPct: null, label: "Langfristig halten · kein Exit" };
     case "futures": return { feeRate: null, targetPct: null, label: "Exit gemäß Futures-Regel" };
     case "arb": return { feeRate: null, targetPct: null, label: "Atomarer Zyklus · kein offener Exit" };
@@ -362,7 +372,16 @@ async function fetchCurrentPriceForBot(bot: BotMeta, trade: RawTrade, pair: stri
     return fetchFuturesCurrentPrice(rest.split("_").slice(0, 2).join("_"));
   }
   if (["memecoin", "pumpfun", "pumpfun_v2", "scout"].includes(bot.key)) return null;
+  if (bot.key === "candlestick") return fetchCandlestickCurrentPrice();
   return fetchSpotCurrentPrice(pair);
+}
+
+async function fetchCandlestickCurrentPrice(): Promise<number | null> {
+  const [solUsdc, eurUsd] = await Promise.all([
+    fetchSpotCurrentPrice("SOLUSDC"),
+    fetchSpotCurrentPrice("EURUSD"),
+  ]);
+  return solUsdc != null && eurUsd != null && eurUsd > 0 ? solUsdc / eurUsd : null;
 }
 
 function toTradeRow(r: RawTrade): TradeRow {
@@ -523,6 +542,13 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
     ]);
     priceSource = "Kraken Spot · OHLC · 1h";
     currentPriceSource = currentPrice == null ? null : "Kraken Spot · Live Ticker";
+    if (meta?.key === "candlestick") {
+      const eurUsd = await fetchSpotCurrentPrice("EURUSD");
+      if (eurUsd != null && eurUsd > 0) priceSeries = priceSeries.map((point) => ({ ...point, price: point.price / eurUsd }));
+      currentPrice = await fetchCandlestickCurrentPrice();
+      priceSource = "Kraken SOL/USDC · in EUR · OHLC 1h";
+      currentPriceSource = currentPrice == null ? null : "Kraken SOL/USDC · live in EUR";
+    }
   }
 
   const endTs = row.resolvedAt ?? Math.floor(Date.now() / 1000);
@@ -567,7 +593,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, candlestick: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -770,6 +796,29 @@ export function getSettings(): SettingsView {
         { label: "Max. Positionsgröße", value: "25 €" },
         { label: "Verlustpause", value: "24 Std. nach 3 Verlusten in Folge" },
         { label: "Kontoverlust-Sperre", value: "−10 %", hint: "Ab dieser Verlustgrenze keine neuen Einstiege, offene Positionen laufen weiter." },
+      ],
+    },
+    {
+      key: "candlestick",
+      name: "Candlestick-Scoring",
+      nickname: "Der Kerzenreiter",
+      purpose: "Handelt SOL/USDC nur bei gemeinsam bestätigtem Trend, Momentum, Volumen und bullischem Kerzenmuster.",
+      currentBehavior: "Bewertet abgeschlossene 1h- und 15m-Kerzen mit bis zu 100 Punkten und nutzt Jupiter ausschließlich für realistische Paper-Fills.",
+      params: [
+        { label: "Handelspaar", value: "SOL/USDC", hint: "PnL und Equity werden für das Battle in EUR umgerechnet." },
+        { label: "Mindestscore", value: "75/100" },
+        { label: "Trendfilter", value: "EMA50 > EMA200 (1h)" },
+        { label: "Momentum", value: "EMA20 > EMA50, RSI 52–70, MACD positiv (15m)" },
+        { label: "Kerzenmuster V1", value: "Bullish Engulfing, Hammer oder bullische Inside-Bar" },
+        { label: "Volumen", value: "mindestens 130 % des 20-Kerzen-Mittels" },
+        { label: "Paper-Fills", value: "Jupiter Quote API", hint: "Keine Wallet, keine Signatur und keine Transaktion." },
+        { label: "Risiko pro Trade", value: "max. 0,50 €" },
+        { label: "Max. Position", value: "25 €" },
+        { label: "Chance/Risiko", value: "mindestens 1,8 : 1 nach Rundreisekosten" },
+        { label: "Exit", value: "2× ATR-Trailing, EMA-/Momentum-/Strukturbruch" },
+        { label: "Max. Haltedauer", value: "48 Std." },
+        { label: "Verlustpause", value: "24 Std. nach 3 Verlusten" },
+        { label: "Kontoverlust-Sperre", value: "−10 %" },
       ],
     },
     {
