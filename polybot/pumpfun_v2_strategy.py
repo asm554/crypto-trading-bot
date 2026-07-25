@@ -36,7 +36,7 @@ class PumpFunV2PaperBot(PumpFunPaperBot):
             "trail_floor_pct": 10.0,
             "max_hold_sec": 1800,
             "migrated_max_hold_sec": 4 * 3600,
-            "platform_fee_pct": 1.0,
+            "platform_fee_pct": 1.25,
             "migrated_slippage_pct": 3.0,
             "paper_mode": True,
             "prefix": "PUMP2_",

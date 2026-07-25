@@ -182,6 +182,13 @@ class SurferBot:
                 self.last_entry_scan = float(raw.get("last_entry_scan", 0.0))
                 self.last_snapshot = float(raw.get("last_snapshot", 0.0))
                 self.trade_count = int(raw.get("trade_count", 0))
+                state_ids = {
+                    int(pos.get("trade_id") or 0)
+                    for pos in self.portfolio.values()
+                    if int(pos.get("trade_id") or 0) > 0
+                }
+                if state_ids != paper_db_module.get_open_trade_ids_by_prefix_sync(PREFIX):
+                    raise ValueError("State und offenes SURF-Ledger weichen ab")
                 logger.info("♻️ Surfer state geladen: cash=%.2f€, open=%d", self.capital_remaining, len(self.portfolio))
                 return
             except Exception as e:
@@ -202,7 +209,10 @@ class SurferBot:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         try:
-            rows = conn.execute("SELECT * FROM paper_trades WHERE market_question LIKE ? ORDER BY id ASC", (f"{PREFIX}%",)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM paper_trades WHERE market_question LIKE ? ESCAPE '\\' ORDER BY id ASC",
+                (paper_db_module.prefix_like_pattern(PREFIX),),
+            ).fetchall()
         finally:
             conn.close()
         last_resolved_at = None
@@ -305,7 +315,10 @@ class SurferBot:
         current_value = shares * exit_price
         fee = config.CRYPTO_TAKER_FEE_RATE
         real_pnl = current_value - entry_cost - entry_cost * fee - current_value * fee
-        await resolve_trade(trade_id, exit_price, round(real_pnl, 6))
+        if not await resolve_trade(trade_id, exit_price, round(real_pnl, 6)):
+            self._rebuild_state_from_db()
+            self._save_state()
+            return []
         self.capital_remaining += entry_cost + real_pnl
         self.portfolio.pop(self.pair, None)
         if real_pnl < 0:
@@ -450,6 +463,7 @@ class SurferBot:
         unrealized = 0.0
         mtm = 0.0
         if pos:
+            entry_cost = float(pos["cost_basis"])
             ticker = await fetch_ticker_data([self.pair])
             snap = self._ticker_snapshot(self.pair, ticker)
             if snap:
@@ -457,9 +471,12 @@ class SurferBot:
                 # Mark-to-Market simuliert den Verkauf, also zum Bid bewerten.
                 current_value = float(pos["shares"]) * float(snap.get("bid") or snap["last_price"])
                 sell_fee = current_value * fee
-                entry_cost = float(pos["cost_basis"])
                 mtm += current_value - entry_cost * fee - sell_fee
                 unrealized += current_value - entry_cost - entry_cost * fee - sell_fee
+            else:
+                # Ein temporärer Datenfehler darf weder Equity noch den
+                # Kontoverlust-Schutz künstlich auslösen.
+                mtm += entry_cost
         realized = await paper_db_module.get_realized_pnl_by_prefix(PREFIX)
         return {
             "equity_eur": self.capital_remaining + mtm,

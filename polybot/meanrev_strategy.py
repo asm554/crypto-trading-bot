@@ -166,6 +166,13 @@ class MeanRevBot:
                 self.last_entry_scan = float(raw.get("last_entry_scan", 0.0))
                 self.last_snapshot = float(raw.get("last_snapshot", 0.0))
                 self.trade_count = int(raw.get("trade_count", 0))
+                state_ids = {
+                    int(pos.get("trade_id") or 0)
+                    for pos in self.portfolio.values()
+                    if int(pos.get("trade_id") or 0) > 0
+                }
+                if state_ids != paper_db_module.get_open_trade_ids_by_prefix_sync(PREFIX):
+                    raise ValueError("State und offenes REV-Ledger weichen ab")
                 logger.info("♻️ MeanRev state geladen: cash=%.2f€, open=%d", self.capital_remaining, len(self.portfolio))
                 return
             except Exception as e:
@@ -184,7 +191,10 @@ class MeanRevBot:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         try:
-            rows = conn.execute("SELECT * FROM paper_trades WHERE market_question LIKE ? ORDER BY id ASC", (f"{PREFIX}%",)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM paper_trades WHERE market_question LIKE ? ESCAPE '\\' ORDER BY id ASC",
+                (paper_db_module.prefix_like_pattern(PREFIX),),
+            ).fetchall()
         finally:
             conn.close()
         for row in rows:
@@ -253,7 +263,10 @@ class MeanRevBot:
             current_value = shares * exit_price
             fee = config.CRYPTO_TAKER_FEE_RATE
             real_pnl = current_value - entry_cost - entry_cost * fee - current_value * fee
-            await resolve_trade(trade_id, exit_price, round(real_pnl, 6))
+            if not await resolve_trade(trade_id, exit_price, round(real_pnl, 6)):
+                self._rebuild_state_from_db()
+                self._save_state()
+                return out
             self.capital_remaining += entry_cost + real_pnl
             self.cooldowns[pair] = now + self.cooldown_sec
             self.portfolio.pop(pair, None)
@@ -351,6 +364,7 @@ class MeanRevBot:
         for pair, pos in self.portfolio.items():
             entry_cost = float(pos["cost_basis"])
             snap = self._ticker_snapshot(pair, ticker)
+            entry_cost = float(pos["cost_basis"])
             if not snap:
                 mtm += entry_cost
                 trade_pnls[int(pos["trade_id"])] = 0.0
