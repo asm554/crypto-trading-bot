@@ -23,6 +23,8 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
   const optimizationReady = bot.closedTradeCount >= optimizationThreshold;
   const optimizationProgress = Math.min(100, (bot.closedTradeCount / optimizationThreshold) * 100);
   const tradesUntilOptimization = Math.max(0, optimizationThreshold - bot.closedTradeCount);
+  const runtimeStartedAt = bot.runtimeStartedAt ?? bot.startedAt;
+  const runtimeLabel = bot.runtimeStartedAt == null && bot.startedAt != null ? "Daten seit" : "Läuft seit";
 
   return (
     <Card
@@ -73,8 +75,8 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
           </div>
           <div className="text-right text-xs text-muted-foreground">
             <div>{relTime(bot.lastActivity)}</div>
-            <div className="mt-1 font-mono tabular-nums" title="Seit dem letzten Prozessstart">
-              Läuft seit {runtime(bot.runtimeStartedAt)}
+            <div className="mt-1 font-mono tabular-nums" title={runtimeLabel === "Läuft seit" ? "Seit dem letzten Prozessstart" : "Seit der ersten Messung"}>
+              {runtimeLabel} {runtime(runtimeStartedAt)}
             </div>
           </div>
         </div>
@@ -86,7 +88,7 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
         <Stat label="Bargeld" value={eur(bot.cashEur)} />
         <Stat label="Gewinn realisiert" value={signedEur(bot.realizedPnlEur)} tone={pnlToneClass(bot.realizedPnlEur)} />
         <Stat label="noch offen" value={signedEur(bot.unrealizedPnlEur)} tone={pnlToneClass(bot.unrealizedPnlEur)} />
-        <Stat label="Trades gesamt" value={String(bot.tradeCount)} />
+        <Stat label={`${bot.tradeUnitLabel} gesamt`} value={String(bot.tradeCount)} />
 
         {bot.activePosition ? (
           <div className="col-span-full mt-1 border-t pt-3">
@@ -126,14 +128,14 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
             )}
           >
             <div className="flex items-center justify-between gap-3 text-xs font-semibold">
-              <span>Abgeschlossene Trades</span>
+              <span>Abgeschlossene {bot.tradeUnitLabel}</span>
               <span className="font-mono text-sm font-black tabular-nums">
                 {bot.closedTradeCount}/{optimizationThreshold}
               </span>
             </div>
             <div
               role="progressbar"
-              aria-label={`${bot.closedTradeCount} von ${optimizationThreshold} abgeschlossenen Trades bis zur nächsten Optimierung`}
+              aria-label={`${bot.closedTradeCount} von ${optimizationThreshold} abgeschlossenen ${bot.tradeUnitLabel} bis zur nächsten Optimierung`}
               aria-valuemin={0}
               aria-valuemax={optimizationThreshold}
               aria-valuenow={Math.min(bot.closedTradeCount, optimizationThreshold)}
@@ -147,7 +149,7 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
             <p className="mt-1.5 text-xs font-medium leading-tight">
               {optimizationReady
                 ? "Optimierung kann jetzt geprüft werden"
-                : `Noch ${tradesUntilOptimization} ${tradesUntilOptimization === 1 ? "Trade" : "Trades"} bis zur nächsten Optimierung`}
+                : `Noch ${tradesUntilOptimization} ${tradesUntilOptimization === 1 ? bot.tradeUnitSingular : bot.tradeUnitLabel} bis zur nächsten Optimierung`}
             </p>
           </div>
         )}

@@ -151,6 +151,8 @@ export type BotSummary = {
   pnlPct: number;
   tradeCount: number;
   closedTradeCount: number;
+  tradeUnitLabel: string;
+  tradeUnitSingular: string;
   startedAt: number | null;
   lastActivity: number | null;
   runtimeStartedAt: number | null;
@@ -281,6 +283,8 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const botTrades = trades.filter((t) => t.market_question.startsWith(bot.prefix));
     const openTrades = botTrades.filter((t) => t.resolved_at == null);
     const doneTrades = botTrades.filter((t) => t.resolved_at != null);
+    const displayTrades = displayTradesForBot(bot, botTrades);
+    const displayDoneTrades = displayTrades.filter((t) => t.resolved_at != null);
 
     const botSnaps = snapshots.filter((s) => s.bot === bot.key);
     const latestSnap = botSnaps[botSnaps.length - 1];
@@ -320,8 +324,10 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       unrealizedPnlEur: round2(unrealized),
       totalPnlEur: round2(totalPnl),
       pnlPct: round2((totalPnl / startingCapitalEur) * 100),
-      tradeCount: botTrades.length,
-      closedTradeCount: doneTrades.length,
+      tradeCount: displayTrades.length,
+      closedTradeCount: displayDoneTrades.length,
+      tradeUnitLabel: bot.key === "ultimate" ? "Positionen" : "Trades",
+      tradeUnitSingular: bot.key === "ultimate" ? "Position" : "Trade",
       startedAt: Number.isFinite(startedAt) ? startedAt : null,
       lastActivity,
       runtimeStartedAt: runtime ? num(runtime.ts) : null,
@@ -331,6 +337,11 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       activePosition,
     };
   }));
+}
+
+function displayTradesForBot(bot: BotMeta, trades: RawTrade[]): RawTrade[] {
+  if (bot.key !== "ultimate") return trades;
+  return trades.filter((trade) => trade.status !== "paper_runner");
 }
 
 async function buildPositionOverview(bot: BotMeta, openTrades: RawTrade[]): Promise<PositionOverview | null> {
