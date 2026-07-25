@@ -369,7 +369,7 @@ function exitRuleFor(key: BotKey): { feeRate: number | null; targetPct: number |
     case "daytrade": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −1,5 % vom Hoch" };
     case "surfer": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −3 % vom Hoch" };
     case "candlestick": return { feeRate: null, targetPct: null, label: "ATR-Trailing · kein fixer Exit" };
-    case "ultimate": return { feeRate: spotFee, targetPct: null, label: "2R-Teilgewinn · ATR-Trailing" };
+    case "ultimate": return { feeRate: 0.008, targetPct: null, label: "Netto-2R-Teilgewinn · ATR-Trailing" };
     case "hodl": return { feeRate: spotFee, targetPct: null, label: "Langfristig halten · kein Exit" };
     case "futures": return { feeRate: null, targetPct: null, label: "Exit gemäß Futures-Regel" };
     case "arb": return { feeRate: null, targetPct: null, label: "Atomarer Zyklus · kein offener Exit" };
@@ -836,20 +836,24 @@ export function getSettings(): SettingsView {
       name: "Adaptive Multi-Strategie",
       nickname: "Der Ultimative",
       purpose: "Wählt abhängig von der Marktphase die passende Long-Strategie für BTC/EUR, ETH/EUR oder SOL/EUR.",
-      currentBehavior: "Handelt Trend-Breakouts und Pullbacks im Aufwärtstrend, kontrollierte Mean-Reversion seitwärts und bleibt im Abwärtstrend oder bei unklarer Lage vollständig draußen.",
+      currentBehavior: "Handelt nur neue, klar bestätigte Signale. Gebühren, Mindesthaltezeit, Wiederholungssperren und Verlustpausen verhindern die früheren schnellen Minus-Trades.",
       params: [
         { label: "Märkte", value: "BTC/EUR, ETH/EUR, SOL/EUR" },
         { label: "Marktphasen", value: "Aufwärtstrend, seitwärts, abwärts, unklar" },
-        { label: "Mindestscore", value: "80/100" },
+        { label: "Mindestscore", value: "85/100" },
         { label: "Indikatoren", value: "EMA20/50/200, RSI, MACD, ATR und Volumen" },
         { label: "Setups", value: "Breakout, Pullback oder kontrollierte Mean-Reversion" },
         { label: "Kerzenmuster", value: "Engulfing, Hammer, Inside-Bar, Morning Star, Three White Soldiers, Tweezer Bottom, Piercing" },
         { label: "Risiko pro Position", value: "max. 0,50 €" },
         { label: "Positionsgröße", value: "max. 25 €" },
-        { label: "Nachkauf", value: "maximal 1, risikobegrenzt" },
-        { label: "Netto-CRV", value: "mindestens 2 : 1 nach Gebühren" },
+        { label: "Nachkauf", value: "maximal 1, nur bei bestätigtem Trend-Pullback" },
+        { label: "Netto-CRV", value: "mindestens 2 : 1 nach allen Gebühren" },
         { label: "Gewinnsicherung", value: "50 % Teilgewinn bei 2R, Rest per ATR-Trailing" },
-        { label: "Weitere Exits", value: "Break-even, Regime-/Momentumbruch, 72-Std.-Zeitlimit" },
+        { label: "Mindesthaltezeit", value: "60 Min.", hint: "Ein normaler Signalausstieg darf nicht mehr direkt nach dem Kauf auslösen. Der Schutzstopp bleibt immer aktiv." },
+        { label: "Wiederholungssperre", value: "gleiches Signal nie doppelt · 12 Std. Pause je Markt" },
+        { label: "Tageslimit", value: "maximal 3 neue Positionen" },
+        { label: "Verlustpause", value: "12 Std. nach 2 Verlustpositionen" },
+        { label: "Weitere Exits", value: "Break-even, bestätigter Regime-/Momentumbruch, 72-Std.-Zeitlimit" },
         { label: "Kontoverlust-Sperre", value: "−10 %" },
         { label: "Modus", value: "100 % Paper-Trading" },
       ],

@@ -14,6 +14,7 @@ from polybot.dca_strategy import PAIR_MAP, extract_quote, fetch_ticker_data
 from polybot.memecoin_strategy import DEFAULT_DEX_FEE_PCT, DEFAULT_SLIPPAGE_PCT, EURUSD_INTERNAL, EURUSD_PAIR, FALLBACK_EUR_USD_RATE, fetch_pairs_by_address
 from polybot.scout_strategy import fetch_scout_prices
 from polybot.candlestick_strategy import SOL_MINT, USDC_MINT, fetch_jupiter_quote
+from polybot.ultimate_strategy import DEFAULT_TAKER_FEE_RATE as ULTIMATE_TAKER_FEE_RATE
 from polybot.paper_db import DB_PATH, get_open_trades_by_prefix, init_db, log_equity_snapshot, prefix_like_pattern
 
 DATA_DIR = Path(DB_PATH).resolve().parent
@@ -261,7 +262,7 @@ async def equity_for_ultimate(prefix: str, state_path: Path, bot: str) -> dict:
         if data:
             bid, _ask = extract_quote(data, float(data["c"][0]))
             value = shares * bid
-            net = value - cost * FEE - value * FEE
+            net = value - cost * ULTIMATE_TAKER_FEE_RATE - value * ULTIMATE_TAKER_FEE_RATE
         else:
             net = cost
         mtm += net
