@@ -52,6 +52,14 @@ def load_cash(state_path: Path, default: float = 100.0) -> float:
         return default
 
 
+def attach_initial_capital(snap: dict, open_rows: list[dict]) -> dict:
+    """Leitet das Startkapital aus Cash, offenen Kosten und Real-PnL ab."""
+    open_cost = sum(float(row["size"]) * float(row["entry_price"]) for row in open_rows)
+    inferred = float(snap["cash_eur"]) + open_cost - float(snap["realized_pnl_eur"])
+    snap["initial_capital_eur"] = inferred if inferred > 0 else 100.0
+    return snap
+
+
 async def equity_for(prefix: str, state_path: Path, bot: str) -> dict:
     cash = load_cash(state_path)
     open_rows = await get_open_trades_by_prefix(prefix)
@@ -84,7 +92,7 @@ async def equity_for(prefix: str, state_path: Path, bot: str) -> dict:
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
     snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
     await log_equity_snapshot(bot, **snap)
-    return snap
+    return attach_initial_capital(snap, open_rows)
 
 
 async def equity_for_memecoin(prefix: str, state_path: Path, bot: str) -> dict:
@@ -126,18 +134,32 @@ async def equity_for_memecoin(prefix: str, state_path: Path, bot: str) -> dict:
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
     snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
     await log_equity_snapshot(bot, **snap)
-    return snap
+    return attach_initial_capital(snap, open_rows)
 
 
 async def equity_for_pumpfun(prefix: str, state_path: Path, bot: str) -> dict:
-    """Konservative Pump.fun-Paper-Bewertung ohne erfundene Marktpreise."""
+    """Bewertet offene Pump-Positionen mit dem letzten Event-Mark aus dem State."""
     cash = load_cash(state_path)
     open_rows = await get_open_trades_by_prefix(prefix)
-    mtm = sum(float(row["size"]) * float(row["entry_price"]) for row in open_rows)
+    try:
+        state = json.loads(state_path.read_text())
+        positions = state.get("portfolio") or {}
+    except Exception:
+        positions = {}
+    marks_by_id = {
+        int(pos.get("trade_id") or 0): float(pos.get("mark_value", pos.get("cost_basis", 0.0)) or 0.0)
+        for pos in positions.values()
+    }
+    mtm = 0.0
+    open_cost = 0.0
+    for row in open_rows:
+        cost = float(row["size"]) * float(row["entry_price"])
+        open_cost += cost
+        mtm += marks_by_id.get(int(row["id"]), cost)
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
-    snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": 0.0, "realized_pnl_eur": realized}
+    snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": mtm - open_cost, "realized_pnl_eur": realized}
     await log_equity_snapshot(bot, **snap)
-    return snap
+    return attach_initial_capital(snap, open_rows)
 
 
 async def equity_for_scout(prefix: str, state_path: Path, bot: str) -> dict:
@@ -158,7 +180,7 @@ async def equity_for_scout(prefix: str, state_path: Path, bot: str) -> dict:
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
     snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
     await log_equity_snapshot(bot, **snap)
-    return snap
+    return attach_initial_capital(snap, open_rows)
 
 
 async def equity_for_hodl(prefix: str, state_path: Path, bot: str) -> dict:
@@ -177,7 +199,7 @@ async def equity_for_hodl(prefix: str, state_path: Path, bot: str) -> dict:
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
     snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
     await log_equity_snapshot(bot, **snap)
-    return snap
+    return attach_initial_capital(snap, rows)
 
 
 def rows_for_bot(bot: str) -> list[tuple]:
@@ -292,7 +314,8 @@ async def build_report() -> str:
     lines = [f"🏁 Strategie-Battle — Tag {day}/{int(meta.get('duration_days', DURATION_DAYS))}", ""]
     for idx, (bot, s) in enumerate(ranking):
         vals = [r[1] for r in rows_for_bot(bot)]
-        pct = (s["equity_eur"] - 100.0)
+        initial = float(s.get("initial_capital_eur", 100.0) or 100.0)
+        pct = (s["equity_eur"] / initial - 1) * 100
         lines.append(f"{rank_marker(idx)} {BOTS[bot]['label']:<16} {s['equity_eur']:>7.2f} € ({pct:+.1f} %) {spark(vals)}")
     lines.append("")
     lines.append("```")

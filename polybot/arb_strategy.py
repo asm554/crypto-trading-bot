@@ -114,8 +114,9 @@ class TriangularArbBot:
         conn.row_factory = sqlite3.Row
         try:
             rows = conn.execute(
-                "SELECT real_pnl FROM paper_trades WHERE market_question LIKE ? AND resolved_at IS NOT NULL",
-                (f"{PREFIX}%",),
+                "SELECT real_pnl FROM paper_trades "
+                "WHERE market_question LIKE ? ESCAPE '\\' AND resolved_at IS NOT NULL",
+                (paper_db_module.prefix_like_pattern(PREFIX),),
             ).fetchall()
         finally:
             conn.close()
@@ -212,7 +213,10 @@ class TriangularArbBot:
         fill_price = 1.0 + (best_profit / self.ticket_eur)
 
         trade_id = await log_paper_trade(market_question, "cycle", self.ticket_eur, fill_price, best_profit / self.ticket_eur, "paper")
-        await resolve_trade(trade_id, fill_price, round(best_profit, 6))
+        if not await resolve_trade(trade_id, fill_price, round(best_profit, 6)):
+            self._rebuild_state_from_db()
+            self._save_state()
+            return []
 
         self.capital_remaining += best_profit
         self.trade_count += 1

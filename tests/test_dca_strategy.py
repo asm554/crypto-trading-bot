@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 
-from polybot.dca_strategy import DCABot, extract_quote, rolling_24h_change_pct, rolling_change_pct
+from polybot.dca_strategy import CANDIDATE_PAIRS, PAIR_MAP, DCABot, extract_quote, rolling_24h_change_pct, rolling_change_pct
 import polybot.dca_strategy as dca_strategy
 import polybot.paper_db as paper_db
 
@@ -21,6 +21,12 @@ def test_extract_quote_falls_back_on_unusable_quote():
     assert extract_quote({"b": ["101"], "a": ["99"]}, 100.0) == (100.0, 100.0)
     assert extract_quote({"b": ["0"], "a": ["100.5"]}, 100.0) == (100.0, 100.0)
     assert extract_quote({"b": ["abc"], "a": ["100.5"]}, 100.0) == (100.0, 100.0)
+
+
+def test_current_kraken_pair_aliases_and_polygon_symbol():
+    assert PAIR_MAP["DOGEEUR"] == "XDGEUR"
+    assert "POLEUR" in CANDIDATE_PAIRS
+    assert "MATICEUR" not in CANDIDATE_PAIRS
 
 
 def test_rolling_24h_change_pct_uses_close_24_bars_back(monkeypatch):

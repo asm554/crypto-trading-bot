@@ -4,6 +4,10 @@ import logging.handlers
 import os
 import signal
 
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
@@ -46,7 +50,10 @@ async def main():
         trail_floor_pct=env("PUMP2_TRAIL_FLOOR_PCT", 10.0, float),
         max_hold_sec=env("PUMP2_MAX_HOLD_SEC", 1800, int),
         migrated_slippage_pct=env("PUMP2_SLIPPAGE_PCT", 3.0, float),
-        platform_fee_pct=env("PUMP2_PLATFORM_FEE_PCT", 1.0, float),
+        platform_fee_pct=env("PUMP2_PLATFORM_FEE_PCT", 1.25, float),
+        data_fee_sol_per_10k=env("PUMP2_DATA_FEE_SOL_PER_10K", 0.01, float),
+        api_key=os.getenv("PUMPPORTAL_API_KEY", ""),
+        metered_data_enabled=os.getenv("PUMP2_METERED_DATA_ENABLED", "false").lower() == "true",
         paper_mode=os.getenv("PUMP2_PAPER_MODE", "true").lower() == "true",
     )
     stop = asyncio.Event()
