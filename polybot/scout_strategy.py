@@ -6,6 +6,7 @@ transaction: Jupiter quotes are used solely as paper-trading route checks.
 """
 
 import asyncio
+import datetime as dt
 import json
 import logging
 import os
@@ -64,6 +65,18 @@ def _symbol(token: dict) -> str:
     return "".join(char for char in raw.upper() if char.isalnum())[:12] or "TOKEN"
 
 
+def _timestamp(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (int, float)):
+            number = float(value)
+            return number / 1000 if number > 10_000_000_000 else number
+        return dt.datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
 def score_token(token: dict, *, min_liquidity_usd: float = 40_000, min_holders: int = 150) -> tuple[int, list[str]]:
     """Returns a transparent 100-point score and hard-gate rejection reasons.
 
@@ -72,6 +85,7 @@ def score_token(token: dict, *, min_liquidity_usd: float = 40_000, min_holders: 
     """
     audit = token.get("audit") or {}
     stats = token.get("stats5m") or token.get("stats") or {}
+    stats1h = token.get("stats1h") or {}
     reasons: list[str] = []
     mint_disabled = _truth(audit, "mintAuthorityDisabled", "mintAuthorityDisabledAt")
     freeze_disabled = _truth(audit, "freezeAuthorityDisabled", "freezeAuthorityDisabledAt")
@@ -79,17 +93,33 @@ def score_token(token: dict, *, min_liquidity_usd: float = 40_000, min_holders: 
     clean_audit = shield_ok and not _truth(audit, "isHoneypot", "isMutable")
     liquidity = _number(token, "liquidity", "liquidityUsd")
     holders = int(_number(token, "holderCount", "holders"))
-    top_holders = _number(token, "topHoldersPercentage", "topHolderPct", default=101)
-    developer = _number(token, "developerHoldingsPercentage", "developerPct", default=101)
+    top_holders = _number(audit, "topHoldersPercentage", "topHolderPct", default=_number(token, "topHoldersPercentage", "topHolderPct", default=101))
+    developer = _number(
+        audit,
+        "devBalancePercentage",
+        "developerHoldingsPercentage",
+        "developerPct",
+        default=_number(
+            token,
+            "devBalancePercentage",
+            "developerHoldingsPercentage",
+            "developerPct",
+            default=101,
+        ),
+    )
     organic = _number(token, "organicScore", default=-1)
-    volume = _number(stats, "volumeUsd", "volume", "volume5m")
-    organic_volume = _number(stats, "organicBuyVolumeUsd", "organicBuyVolume")
-    organic_buyers = int(_number(stats, "organicBuyers"))
-    traders = int(_number(stats, "traders", "uniqueTraders"))
-    buys = _number(stats, "buys", "buyCount")
-    sells = _number(stats, "sells", "sellCount")
-    m5 = _number(token, "priceChange5m", "m5Change", default=999)
-    h1 = _number(token, "priceChange1h", "h1Change", default=999)
+    volume = _number(stats, "volumeUsd", "volume", "volume5m", default=-1)
+    if volume < 0:
+        volume = _number(stats, "buyVolume") + _number(stats, "sellVolume")
+    organic_volume = _number(stats, "organicBuyVolumeUsd", "organicBuyVolume", default=-1)
+    if organic_volume < 0:
+        organic_volume = _number(stats, "buyOrganicVolume") + _number(stats, "sellOrganicVolume")
+    organic_buyers = int(_number(stats, "organicBuyers", "numOrganicBuyers"))
+    traders = int(_number(stats, "traders", "uniqueTraders", "numTraders"))
+    buys = _number(stats, "buys", "buyCount", "numBuys")
+    sells = _number(stats, "sells", "sellCount", "numSells")
+    m5 = _number(stats, "priceChange", default=_number(token, "priceChange5m", "m5Change", default=999))
+    h1 = _number(stats1h, "priceChange", default=_number(token, "priceChange1h", "h1Change", default=999))
     fdv = _number(token, "fdv", "marketCap", default=float("inf"))
     if not mint_disabled: reasons.append("mint_authority")
     if not freeze_disabled: reasons.append("freeze_authority")
@@ -151,20 +181,33 @@ class ScoutBot:
             self.portfolio = raw.get("portfolio") or {}; self.watchlist = raw.get("watchlist") or {}
             self.consecutive_losses = int(raw.get("consecutive_losses", 0)); self.risk_off_until = float(raw.get("risk_off_until", 0))
             self.last_snapshot = float(raw.get("last_snapshot", 0)); self.last_scan = float(raw.get("last_scan", 0))
+            state_ids = {
+                int(pos.get("trade_id") or 0)
+                for pos in self.portfolio.values()
+                if int(pos.get("trade_id") or 0) > 0
+            }
+            if state_ids != paper_db_module.get_open_trade_ids_by_prefix_sync(PREFIX):
+                raise ValueError("State und offenes SCOUT-Ledger weichen ab")
         except Exception:
             self._rebuild_state()
+            self._save_state()
 
     def _rebuild_state(self):
+        self.capital_remaining = self.initial_capital_eur
+        self.portfolio = {}
         if not self.db_path.exists(): return
         realized = open_cost = 0.0
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            rows = conn.execute("SELECT * FROM paper_trades WHERE market_question LIKE ? ORDER BY id", (f"{PREFIX}%",)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM paper_trades WHERE market_question LIKE ? ESCAPE '\\' ORDER BY id",
+                (paper_db_module.prefix_like_pattern(PREFIX),),
+            ).fetchall()
         for row in rows:
             cost = float(row["size"] or 0) * float(row["price"] or 0)
             if row["resolved_at"] is None:
                 mint = str(row["market_question"]).partition("@")[2]; open_cost += cost
-                self.portfolio[mint] = {"shares": float(row["size"]), "cost_basis": cost, "entry_price": float(row["price"]), "entry_ts": float(row["timestamp"]), "trade_id": int(row["id"]), "needs_recovery_exit": True}
+                self.portfolio[mint] = {"shares": float(row["size"]), "cost_basis": cost, "entry_price": float(row["price"]), "entry_ts": float(row["timestamp"]), "trade_id": int(row["id"]), "needs_recovery_exit": True, "trailing_active": False}
             else: realized += float(row["real_pnl"] or 0)
         self.capital_remaining = max(0, self.initial_capital_eur - open_cost + realized)
 
@@ -210,11 +253,18 @@ class ScoutBot:
             change = (price / entry - 1) * 100; reason = "state_recovery_exit" if pos.get("needs_recovery_exit") else None
             if not reason and change <= -self.stop_loss_pct: reason = "stop_loss"
             elif not reason and change >= self.take_profit_pct: reason = "take_profit"
-            elif not reason and change >= self.trail_activation_pct and price <= peak * (1 - self.trailing_stop_pct / 100): reason = "trailing_stop"
-            elif not reason and now - float(pos["entry_ts"]) >= self.max_hold_sec: reason = "time_exit"
+            elif not reason:
+                if change >= self.trail_activation_pct:
+                    pos["trailing_active"] = True
+                if pos.get("trailing_active") and price <= peak * (1 - self.trailing_stop_pct / 100):
+                    reason = "trailing_stop"
+            if not reason and now - float(pos["entry_ts"]) >= self.max_hold_sec: reason = "time_exit"
             if not reason: continue
-            value = float(pos["shares"]) * price * (1 - self.paper_slippage_pct / 100); pnl = value - float(pos["cost_basis"])
-            await resolve_trade(int(pos["trade_id"]), price, round(pnl, 6)); self.capital_remaining += value; self.portfolio.pop(mint)
+            exit_price = price * (1 - self.paper_slippage_pct / 100)
+            value = float(pos["shares"]) * exit_price; pnl = value - float(pos["cost_basis"])
+            if not await resolve_trade(int(pos["trade_id"]), exit_price, round(pnl, 6)):
+                self._rebuild_state(); self._save_state(); return closed
+            self.capital_remaining += value; self.portfolio.pop(mint)
             self.consecutive_losses = self.consecutive_losses + 1 if pnl < 0 else 0
             if self.consecutive_losses >= self.loss_streak_limit: self.risk_off_until = now + self.risk_off_sec
             closed.append({"mint": mint, "reason": reason, "pnl": pnl})
@@ -232,9 +282,11 @@ class ScoutBot:
         details = await self._tokens(list(self.watchlist)); eurusd = await self._eurusd(); opened = []
         for mint, watch in list(self.watchlist.items()):
             if len(self.portfolio) >= self.max_open_positions or self.capital_remaining - self.position_eur < self.cash_reserve_eur: break
-            age = now - float(watch["seen_at"])
-            if age < self.maturity_sec: continue
-            if age > self.max_pool_age_sec: self.watchlist.pop(mint, None); continue
+            observed_age = now - float(watch["seen_at"])
+            pool_created = _timestamp(watch.get("first_pool"))
+            pool_age = now - pool_created if pool_created is not None else observed_age
+            if observed_age < self.maturity_sec: continue
+            if pool_age > self.max_pool_age_sec: self.watchlist.pop(mint, None); continue
             token = details.get(mint)
             if not token or mint in self.portfolio: continue
             score, reasons = score_token(token)
@@ -243,7 +295,7 @@ class ScoutBot:
             if price <= 0: continue
             entry = price * (1 + self.paper_slippage_pct / 100); shares = self.position_eur / entry; symbol = _symbol(token)
             trade_id = await log_paper_trade(f"{PREFIX}{symbol}@{mint}", "buy", shares, entry, score / 100, "paper")
-            self.capital_remaining -= self.position_eur; self.portfolio[mint] = {"symbol": symbol, "shares": shares, "cost_basis": self.position_eur, "entry_price": entry, "entry_ts": now, "peak_price": entry, "trade_id": trade_id}; opened.append({"symbol": symbol, "mint": mint, "score": score})
+            self.capital_remaining -= self.position_eur; self.portfolio[mint] = {"symbol": symbol, "shares": shares, "cost_basis": self.position_eur, "entry_price": entry, "entry_ts": now, "peak_price": entry, "trailing_active": False, "trade_id": trade_id}; opened.append({"symbol": symbol, "mint": mint, "score": score})
         self._save_state(); return opened
 
     async def equity(self):
