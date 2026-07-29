@@ -233,6 +233,7 @@ export type TradeDetail = TradeRow & {
   lowPrice: number;
   targetPrice: number | null;
   breakEvenPrice: number | null;
+  exitPlan: string;
 };
 
 export type EquityPoint = {
@@ -640,15 +641,9 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
   }
   const prices = priceSeries.map((point) => point.price);
   const latestPrice = row.exitPrice ?? prices[prices.length - 1] ?? row.entryPrice;
-  const isGrid = meta?.key === "futures_grid" || meta?.key === "futures_grid_signal";
-  const targetPct = meta?.key === "freqtrade"
-    ? 0.06
-    : meta?.key === "futures_grid_signal"
-      ? 0.012
-      : isGrid
-        ? 0.011
-        : null;
-  const roundTripFee = meta?.key === "freqtrade" ? 0.0025 : isGrid ? 0.0005 : null;
+  const exitRule = meta
+    ? exitRuleFor(meta.key)
+    : { feeRate: null, targetPct: null, label: "Kein Exit-Plan verfügbar" };
   return {
     ...row,
     marketQuestion: raw.market_question,
@@ -659,10 +654,13 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
     currentPriceSource,
     highPrice: Math.max(...prices, row.entryPrice, latestPrice),
     lowPrice: Math.min(...prices, row.entryPrice, latestPrice),
-    targetPrice: targetPct == null ? null : row.entryPrice * (1 + targetPct),
-    breakEvenPrice: roundTripFee == null
+    targetPrice: exitRule.targetPct == null
       ? null
-      : row.entryPrice * (1 + roundTripFee) / (1 - roundTripFee),
+      : row.entryPrice * (1 + exitRule.targetPct),
+    breakEvenPrice: exitRule.feeRate == null
+      ? null
+      : row.entryPrice * (1 + exitRule.feeRate) / (1 - exitRule.feeRate),
+    exitPlan: exitRule.label,
   };
 }
 

@@ -29,6 +29,8 @@ export function TradePriceChart({
   exitTs,
   breakEvenPrice,
   currentPrice,
+  plannedExitPrice,
+  exitPlan,
 }: {
   data: PricePoint[];
   entryPrice: number;
@@ -37,14 +39,40 @@ export function TradePriceChart({
   exitTs: number | null;
   breakEvenPrice: number | null;
   currentPrice: number | null;
+  plannedExitPrice: number | null;
+  exitPlan: string;
 }) {
   const visibleEntry = nearestPoint(data, entryTs);
   const visibleExit = exitTs ? nearestPoint(data, exitTs) : null;
   const spanSeconds = Math.max(0, (data.at(-1)?.t ?? 0) - (data[0]?.t ?? 0));
 
   return (
-    <ChartContainer config={config} className="h-[320px] w-full">
-      <LineChart data={data} margin={{ top: 18, right: 18, bottom: 4, left: 8 }}>
+    <div className="space-y-4">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <ChartMarker
+          color="var(--bot-momentum)"
+          label="Kauf / Entry"
+          value={formatPrice(entryPrice)}
+        />
+        <ChartMarker
+          color="var(--muted-foreground)"
+          label="Break-even"
+          value={breakEvenPrice == null ? "modellabhängig" : formatPrice(breakEvenPrice)}
+        />
+        <ChartMarker
+          color="var(--bot-futures-grid-signal)"
+          label="Geplanter Exit"
+          value={plannedExitPrice == null ? exitPlan : formatPrice(plannedExitPrice)}
+        />
+        <ChartMarker
+          color="var(--bot-memecoin)"
+          label="Aktueller Kurs"
+          value={currentPrice == null ? "nicht verfügbar" : formatPrice(currentPrice)}
+        />
+      </div>
+
+      <ChartContainer config={config} className="h-[340px] w-full">
+        <LineChart data={data} margin={{ top: 30, right: 22, bottom: 4, left: 8 }}>
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
         <XAxis
           dataKey="t"
@@ -83,14 +111,16 @@ export function TradePriceChart({
           y={entryPrice}
           stroke="var(--bot-momentum)"
           strokeDasharray="5 4"
-          label={{ value: "Entry", fill: "var(--bot-momentum)", position: "insideTopLeft" }}
+          ifOverflow="extendDomain"
+          label={{ value: "Kauf", fill: "var(--bot-momentum)", position: "insideTopLeft" }}
         />
         {exitPrice != null && (
           <ReferenceLine
             y={exitPrice}
             stroke="var(--bot-meanrev)"
             strokeDasharray="5 4"
-            label={{ value: "Exit", fill: "var(--bot-meanrev)", position: "insideBottomLeft" }}
+            ifOverflow="extendDomain"
+            label={{ value: "Verkauft", fill: "var(--bot-meanrev)", position: "insideBottomLeft" }}
           />
         )}
         {breakEvenPrice != null && (
@@ -100,7 +130,21 @@ export function TradePriceChart({
             strokeWidth={1.5}
             strokeDasharray="4 4"
             ifOverflow="extendDomain"
-            label={{ value: `Break-even · ${formatAxisPrice(breakEvenPrice)} €`, fill: "var(--muted-foreground)", position: "insideTopRight" }}
+            label={{ value: `Break-even · ${formatAxisPrice(breakEvenPrice)} €`, fill: "var(--muted-foreground)", position: "insideBottomRight" }}
+          />
+        )}
+        {plannedExitPrice != null && (
+          <ReferenceLine
+            y={plannedExitPrice}
+            stroke="var(--bot-futures-grid-signal)"
+            strokeWidth={2}
+            strokeDasharray="7 4"
+            ifOverflow="extendDomain"
+            label={{
+              value: `Geplanter Exit · ${formatAxisPrice(plannedExitPrice)} €`,
+              fill: "var(--bot-futures-grid-signal)",
+              position: "insideTopRight",
+            }}
           />
         )}
         {currentPrice != null && (
@@ -110,7 +154,6 @@ export function TradePriceChart({
             strokeWidth={1.5}
             strokeDasharray="6 3"
             ifOverflow="extendDomain"
-            label={{ value: `Aktuell · ${formatAxisPrice(currentPrice)} €`, fill: "var(--bot-memecoin)", position: "insideBottomRight" }}
           />
         )}
         <Line
@@ -141,8 +184,33 @@ export function TradePriceChart({
             strokeWidth={2}
           />
         )}
-      </LineChart>
-    </ChartContainer>
+        </LineChart>
+      </ChartContainer>
+    </div>
+  );
+}
+
+function ChartMarker({
+  color,
+  label,
+  value,
+}: {
+  color: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span
+          className="h-0.5 w-5 shrink-0 rounded-full"
+          style={{ backgroundColor: color }}
+          aria-hidden="true"
+        />
+        {label}
+      </div>
+      <div className="mt-1 font-mono text-sm font-semibold tabular-nums">{value}</div>
+    </div>
   );
 }
 
@@ -152,6 +220,10 @@ function formatAxisPrice(value: number): string {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
+}
+
+function formatPrice(value: number): string {
+  return `${formatAxisPrice(value)} €`;
 }
 
 function nearestPoint(data: PricePoint[], timestamp: number): PricePoint | null {
