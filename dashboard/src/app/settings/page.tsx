@@ -15,16 +15,16 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold">Aktive Regeln</h1>
         <p className="text-sm text-muted-foreground">
-          Die wichtigsten Regeln der beiden verbesserten Strategien.
+          Die wichtigsten Regeln aller verbesserten Strategien.
         </p>
       </div>
 
       <div className="flex items-start gap-2 rounded-lg border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
-          Beide Bots handeln im <span className="font-medium text-foreground">Papier-Modus</span> —
-          es wird kein echtes Geld eingesetzt. Der Treppensteiger Signal startet mit
-          1.000&nbsp;€, Pump.fun Reclaim mit 100&nbsp;€.
+          Alle Bots handeln im <span className="font-medium text-foreground">Papier-Modus</span> —
+          es wird kein echtes Geld eingesetzt. Die Standard-Bots starten mit jeweils
+          100&nbsp;€, der Treppensteiger Signal separat mit 1.000&nbsp;€.
         </p>
       </div>
 

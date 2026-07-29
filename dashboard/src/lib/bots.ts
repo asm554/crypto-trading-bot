@@ -145,10 +145,26 @@ export const BOTS: BotMeta[] = [
   },
 ];
 
-// Nur diese beiden überarbeiteten Strategien gehören noch zur aktiven Runde.
+// Nur diese überarbeiteten Strategien gehören noch zur aktiven Runde.
 // Die übrigen Metadaten bleiben erhalten, damit alte Trade-Detailseiten weiterhin
 // verständliche Bot-Namen und Farben anzeigen können.
-export const ACTIVE_BOT_KEYS = ["futures_grid_signal", "pumpfun"] as const satisfies readonly BotKey[];
+export const STANDARD_ACTIVE_BOT_KEYS = [
+  "dca",
+  "momentum",
+  "meanrev",
+  "daytrade",
+  "memecoin",
+  "surfer",
+  "ultimate",
+  "pumpfun",
+] as const satisfies readonly BotKey[];
+export const LEVERAGED_ACTIVE_BOT_KEYS = [
+  "futures_grid_signal",
+] as const satisfies readonly BotKey[];
+export const ACTIVE_BOT_KEYS = [
+  ...STANDARD_ACTIVE_BOT_KEYS,
+  ...LEVERAGED_ACTIVE_BOT_KEYS,
+] as const satisfies readonly BotKey[];
 export const ACTIVE_BOTS = BOTS.filter((bot) =>
   (ACTIVE_BOT_KEYS as readonly BotKey[]).includes(bot.key),
 );
@@ -670,10 +686,11 @@ export type SettingsView = {
 
 export function getSettings(): SettingsView {
   const fees: StrategyParam[] = [
-    { label: "Treppensteiger-Gebühr je Seite", value: "0,05 %", hint: "Im Paper-Modell für Kauf und Verkauf berücksichtigt." },
+    { label: "Kraken Spot-Gebühr", value: "0,40 %", hint: "Im Paper-Modell für Kauf und Verkauf berücksichtigt." },
+    { label: "Treppensteiger-Gebühr je Seite", value: "0,05 %", hint: "Für den separaten 2×-Signal-Bot." },
     { label: "Pump.fun Ausführung", value: "Curve + simulierte Gebühr", hint: "Kein echter Wallet-Handel." },
     { label: "Modus", value: "Papierhandel", hint: "Es wird kein echtes Geld eingesetzt." },
-    { label: "Startkapital", value: "1.000 € Signal · 100 € Reclaim" },
+    { label: "Startkapital", value: "100 € je Standard-Bot · 1.000 € Signal" },
   ];
 
   const strategies: StrategyGroup[] = [

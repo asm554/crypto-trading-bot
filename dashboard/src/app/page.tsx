@@ -1,6 +1,6 @@
 import {
-  ACTIVE_BOTS,
-  ACTIVE_BOT_KEYS,
+  LEVERAGED_ACTIVE_BOT_KEYS,
+  STANDARD_ACTIVE_BOT_KEYS,
   getAllTrades,
   getBotSummaries,
   getEquitySeries,
@@ -33,6 +33,15 @@ export default async function OverviewPage() {
   ]);
 
   const activeBots = bots.filter((bot) => isActiveBotKey(bot.key));
+  const standardBots = activeBots
+    .filter((bot) => (STANDARD_ACTIVE_BOT_KEYS as readonly string[]).includes(bot.key))
+    .sort((a, b) => {
+      if (a.hasData !== b.hasData) return a.hasData ? -1 : 1;
+      return b.equityEur - a.equityEur;
+    });
+  const leveragedBots = activeBots.filter((bot) =>
+    (LEVERAGED_ACTIVE_BOT_KEYS as readonly string[]).includes(bot.key),
+  );
   const activeTrades = allTrades.filter((trade) => isActiveBotKey(trade.botKey));
   const recentTrades = activeTrades.slice(0, 12);
   const totalStartingCapital = activeBots.reduce((sum, bot) => sum + bot.startingCapitalEur, 0);
@@ -48,10 +57,10 @@ export default async function OverviewPage() {
           <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
             Optimierte Paper-Trading-Runde
           </div>
-          <h1 className="mt-1 text-2xl font-bold sm:text-3xl">Zwei Bots. Klare Regeln.</h1>
+          <h1 className="mt-1 text-2xl font-bold sm:text-3xl">Verbesserte Bots. Klare Gruppen.</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Im Dashboard laufen nur noch der stabile Treppensteiger Signal und der vorsichtige
-            Pump.fun Reclaim.
+            Im Dashboard laufen nur Strategien, deren Einstieg, Ausstieg oder Risikoschutz
+            bereits gezielt überarbeitet wurde.
           </p>
         </div>
         <AutoRefresh />
@@ -67,10 +76,10 @@ export default async function OverviewPage() {
                 Aktive Auswahl
               </span>
             </div>
-            <h2 className="mt-2 font-heading text-xl font-bold">Die alte Test-Runde ist beendet</h2>
+            <h2 className="mt-2 font-heading text-xl font-bold">Nur die verbesserte Auswahl läuft</h2>
             <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
-              Frühere Bots, der Treppensteiger Turbo und Pump.fun V2 beeinflussen diese Übersicht
-              nicht mehr. Ihre alten Daten bleiben erhalten, werden aber nicht mehr mitgerechnet.
+              Turbo, Pump.fun V2 und ungeprüfte Experimente beeinflussen diese Übersicht nicht
+              mehr. Der 2×-Signal-Bot wird wegen seines höheren Startkapitals separat gezeigt.
             </p>
           </div>
 
@@ -79,7 +88,7 @@ export default async function OverviewPage() {
               icon={Activity}
               label="Aktive Strategien"
               value={`${activeBots.length}`}
-              hint="Signal + Reclaim"
+              hint={`${standardBots.length} Standard + ${leveragedBots.length} Signal`}
             />
             <Metric
               icon={WalletCards}
@@ -107,17 +116,36 @@ export default async function OverviewPage() {
       <section>
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h2 className="font-heading text-lg font-bold">Aktive Bots</h2>
+            <h2 className="font-heading text-lg font-bold">100-€-Battle</h2>
             <p className="text-sm text-muted-foreground">
-              Unterschiedliche Risikoklassen, deshalb ohne irreführende gemeinsame Rangfolge.
+              Acht verbesserte Strategien mit demselben Startkapital, fair nach Netto-Equity sortiert.
             </p>
           </div>
           <Badge variant="outline" className="border-emerald-500/30 text-emerald-300">
             Nur verbesserte Versionen
           </Badge>
         </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {standardBots.map((bot, index) => (
+            <BotCard
+              key={bot.key}
+              bot={bot}
+              rank={bot.hasData ? index + 1 : undefined}
+              isLeader={bot.hasData && index === 0}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section className="border-t pt-6">
+        <div className="mb-3">
+          <h2 className="font-heading text-lg font-bold">1.000-€-Signal-Klasse</h2>
+          <p className="text-sm text-muted-foreground">
+            Separat geführt, weil Hebel und Startkapital nicht mit dem 100-€-Battle vergleichbar sind.
+          </p>
+        </div>
         <div className="grid gap-4 lg:grid-cols-2">
-          {activeBots.map((bot) => (
+          {leveragedBots.map((bot) => (
             <BotCard key={bot.key} bot={bot} />
           ))}
         </div>
@@ -127,26 +155,26 @@ export default async function OverviewPage() {
         <div className="mb-3">
           <h2 className="font-heading text-lg font-bold">Wert-Entwicklung</h2>
           <p className="text-sm text-muted-foreground">
-            Jeder Bot hat seinen eigenen Maßstab, damit 100&nbsp;€ und 1.000&nbsp;€ Startkapital
-            sauber lesbar bleiben.
+            Standard-Battle und Signal-Klasse bleiben wegen des unterschiedlichen Kapitals getrennt.
           </p>
         </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          {ACTIVE_BOT_KEYS.map((key) => {
-            const bot = ACTIVE_BOTS.find((item) => item.key === key);
-            return (
-              <Card key={key} className="bg-card/85">
-                <CardHeader className="pb-2">
-                  <CardTitle className="font-heading text-base font-bold">
-                    {bot?.nickname ?? key}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <EquityChart data={equity} includeKeys={[key]} />
-                </CardContent>
-              </Card>
-            );
-          })}
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(22rem,1fr)]">
+          <Card className="bg-card/85">
+            <CardHeader className="pb-2">
+              <CardTitle className="font-heading text-base font-bold">100-€-Battle</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <EquityChart data={equity} includeKeys={[...STANDARD_ACTIVE_BOT_KEYS]} />
+            </CardContent>
+          </Card>
+          <Card className="bg-card/85">
+            <CardHeader className="pb-2">
+              <CardTitle className="font-heading text-base font-bold">Treppensteiger Signal</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <EquityChart data={equity} includeKeys={[...LEVERAGED_ACTIVE_BOT_KEYS]} />
+            </CardContent>
+          </Card>
         </div>
       </section>
 

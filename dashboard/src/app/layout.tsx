@@ -20,7 +20,7 @@ const bricolage = Bricolage_Grotesque({
 
 export const metadata: Metadata = {
   title: "Bot-Battle · Optimierte Strategien",
-  description: "Die zwei verbesserten Paper-Trading-Strategien im übersichtlichen Live-Vergleich.",
+  description: "Die verbesserten Paper-Trading-Strategien im übersichtlichen Live-Vergleich.",
 };
 
 export default function RootLayout({

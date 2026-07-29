@@ -15,7 +15,7 @@ export default async function TradesPage() {
       <div>
         <h1 className="text-2xl font-bold">Trades</h1>
         <p className="text-sm text-muted-foreground">
-          Nur die Trades der beiden verbesserten Strategien – nach Status und Bot filterbar.
+          Nur die Trades der verbesserten Strategien – nach Status und Bot filterbar.
         </p>
       </div>
 
