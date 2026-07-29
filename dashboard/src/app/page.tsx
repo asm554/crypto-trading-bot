@@ -5,6 +5,7 @@ import {
   getBotSummaries,
   getEquitySeries,
   isActiveBotKey,
+  isCurrentRoundTrade,
 } from "@/lib/bots";
 import { BotCard } from "@/components/bot-card";
 import { EquityChart } from "@/components/equity-chart";
@@ -42,7 +43,7 @@ export default async function OverviewPage() {
   const leveragedBots = activeBots.filter((bot) =>
     (LEVERAGED_ACTIVE_BOT_KEYS as readonly string[]).includes(bot.key),
   );
-  const activeTrades = allTrades.filter((trade) => isActiveBotKey(trade.botKey));
+  const activeTrades = allTrades.filter(isCurrentRoundTrade);
   const recentTrades = activeTrades.slice(0, 12);
   const totalStartingCapital = activeBots.reduce((sum, bot) => sum + bot.startingCapitalEur, 0);
   const totalEquity = activeBots.reduce((sum, bot) => sum + bot.equityEur, 0);

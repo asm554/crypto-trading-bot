@@ -1,4 +1,4 @@
-import { ACTIVE_BOTS, getAllTrades, isActiveBotKey } from "@/lib/bots";
+import { ACTIVE_BOTS, getAllTrades, isCurrentRoundTrade } from "@/lib/bots";
 import { TradesView } from "@/components/trades-view";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Trading-Bots · Trades" };
 
 export default async function TradesPage() {
-  const trades = (await getAllTrades()).filter((trade) => isActiveBotKey(trade.botKey));
+  const trades = (await getAllTrades()).filter(isCurrentRoundTrade);
   const bots = ACTIVE_BOTS.map((bot) => ({ key: bot.key, nickname: bot.nickname }));
 
   return (

@@ -10,6 +10,7 @@ import {
   getBotSummaries,
   getEquitySeries,
   isActiveBotKey,
+  isCurrentRoundTrade,
 } from "@/lib/bots";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, ShieldCheck } from "lucide-react";
@@ -24,7 +25,7 @@ export default async function VideoBotsPage() {
     getAllTrades(),
   ]);
   const selected = bots.filter((bot) => isActiveBotKey(bot.key));
-  const filtered = trades.filter((trade) => isActiveBotKey(trade.botKey));
+  const filtered = trades.filter(isCurrentRoundTrade);
 
   return (
     <div className="flex flex-col gap-6">

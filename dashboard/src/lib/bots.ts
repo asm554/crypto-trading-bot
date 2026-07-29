@@ -165,6 +165,7 @@ export const ACTIVE_BOT_KEYS = [
   ...STANDARD_ACTIVE_BOT_KEYS,
   ...LEVERAGED_ACTIVE_BOT_KEYS,
 ] as const satisfies readonly BotKey[];
+export const ACTIVE_ROUND_STARTED_AT = 1785354759;
 export const ACTIVE_BOTS = BOTS.filter((bot) =>
   (ACTIVE_BOT_KEYS as readonly BotKey[]).includes(bot.key),
 );
@@ -214,6 +215,10 @@ export type TradeRow = {
   exitPrice: number | null;
   resolvedAt: number | null;
 };
+
+export function isCurrentRoundTrade(trade: TradeRow): boolean {
+  return isActiveBotKey(trade.botKey) && trade.timestamp >= ACTIVE_ROUND_STARTED_AT;
+}
 
 export type PricePoint = { t: number; price: number };
 
@@ -317,13 +322,18 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
   const [trades, snapshots] = await Promise.all([fetchAllTrades(), fetchAllSnapshots()]);
 
   return Promise.all(BOTS.map(async (bot) => {
-    const botTrades = trades.filter((t) => t.market_question.startsWith(bot.prefix));
+    const roundStartedAt = isActiveBotKey(bot.key) ? ACTIVE_ROUND_STARTED_AT : 0;
+    const botTrades = trades.filter(
+      (t) => t.market_question.startsWith(bot.prefix) && num(t.timestamp) >= roundStartedAt,
+    );
     const openTrades = botTrades.filter((t) => t.resolved_at == null);
     const doneTrades = botTrades.filter((t) => t.resolved_at != null);
     const displayTrades = displayTradesForBot(bot, botTrades);
     const displayDoneTrades = displayTrades.filter((t) => t.resolved_at != null);
 
-    const botSnaps = snapshots.filter((s) => s.bot === bot.key);
+    const botSnaps = snapshots.filter(
+      (s) => s.bot === bot.key && num(s.ts) >= roundStartedAt,
+    );
     const latestSnap = botSnaps[botSnaps.length - 1];
 
     // Der neueste Snapshot ist die maßgebliche, zeitgleiche Bewertung. Die
@@ -344,7 +354,9 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const firstSnapshotTs = botSnaps.reduce((min, s) => Math.min(min, num(s.ts)), Infinity);
     const startedAt = Math.min(firstTradeTs, firstSnapshotTs);
     const lastActivity = Math.max(lastTradeTs, latestSnap ? num(latestSnap.ts) : 0) || null;
-    const runtimeSnapshots = snapshots.filter((s) => s.bot === `__runtime_${bot.key}`);
+    const runtimeSnapshots = snapshots.filter(
+      (s) => s.bot === `__runtime_${bot.key}` && num(s.ts) >= roundStartedAt,
+    );
     const runtime = runtimeSnapshots[runtimeSnapshots.length - 1];
 
     const totalPnl = equity - startingCapitalEur;
@@ -658,6 +670,12 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
   const snapshots = await fetchAllSnapshots();
   const byTime = new Map<number, EquityPoint>();
   for (const r of snapshots) {
+    if (
+      (ACTIVE_BOT_KEYS as readonly string[]).includes(r.bot)
+      && num(r.ts) < ACTIVE_ROUND_STARTED_AT
+    ) {
+      continue;
+    }
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
