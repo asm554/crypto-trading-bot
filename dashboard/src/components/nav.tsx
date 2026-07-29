@@ -2,14 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, SlidersHorizontal, Bot, ArrowLeftRight, Film, Landmark } from "lucide-react";
+import { LayoutDashboard, SlidersHorizontal, Bot, ArrowLeftRight, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
   { href: "/", label: "Übersicht", icon: LayoutDashboard },
   { href: "/trades", label: "Trades", icon: ArrowLeftRight },
-  { href: "/bots/hodl", label: "HODLer", icon: Landmark },
-  { href: "/bots/video", label: "Video-Bots", icon: Film },
+  { href: "/bots/video", label: "Aktive Bots", icon: Sparkles },
   { href: "/settings", label: "Einstellungen", icon: SlidersHorizontal },
 ];
 
@@ -28,7 +27,7 @@ export function Nav() {
           <span className="whitespace-nowrap font-heading text-sm font-bold tracking-tight sm:text-[15px]">
             Bot-Battle
             <span className="ml-1.5 hidden font-mono text-[10px] font-normal uppercase tracking-[0.18em] text-muted-foreground sm:inline">
-              Papier
+              Optimiert
             </span>
           </span>
         </Link>

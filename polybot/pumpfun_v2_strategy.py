@@ -30,6 +30,15 @@ class PumpFunV2PaperBot(PumpFunPaperBot):
             "min_unique_traders": 3,
             "min_buy_sell_ratio": 1.05,
             "min_recent_change_pct": 1.0,
+            # V2 stays the unchanged momentum control group. The pullback gates
+            # below belong only to the redesigned Original strategy.
+            "max_recent_change_pct": 1000.0,
+            "min_peak_change_pct": 0.0,
+            "min_pullback_pct": 0.0,
+            "max_pullback_pct": 100.0,
+            "min_recent_trades": 1,
+            "min_recent_buy_sell_ratio": 0.0,
+            "allow_migrated_entries": True,
             "stop_loss_pct": 18.0,
             "take_profit_pct": 25.0,
             "trailing_stop_pct": 12.0,

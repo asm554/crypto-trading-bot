@@ -5,7 +5,7 @@ import { Activity, Info, Target } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Trading-Bots · Einstellungen" };
+export const metadata = { title: "Aktive Bots · Regeln" };
 
 export default function SettingsPage() {
   const { fees, strategies } = getSettings();
@@ -13,18 +13,18 @@ export default function SettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold">Einstellungen</h1>
+        <h1 className="text-2xl font-bold">Aktive Regeln</h1>
         <p className="text-sm text-muted-foreground">
-          Zum Ansehen. Geändert werden die Werte in der Bot-Konfiguration.
+          Die wichtigsten Regeln der beiden verbesserten Strategien.
         </p>
       </div>
 
       <div className="flex items-start gap-2 rounded-lg border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
-          Alle Bots handeln im <span className="font-medium text-foreground">Papier-Modus</span> — es
-          wird kein echtes Geld eingesetzt. Das Standard-Battle startet mit 100&nbsp;€; der separat
-          gewertete Treppensteiger Turbo und Freqtrade starten mit 1.000&nbsp;€.
+          Beide Bots handeln im <span className="font-medium text-foreground">Papier-Modus</span> —
+          es wird kein echtes Geld eingesetzt. Der Treppensteiger Signal startet mit
+          1.000&nbsp;€, Pump.fun Reclaim mit 100&nbsp;€.
         </p>
       </div>
 
@@ -47,11 +47,11 @@ export default function SettingsPage() {
       </Card>
 
       <div>
-        <h2 className="font-heading text-lg font-bold">Bots im Überblick</h2>
-        <p className="text-sm text-muted-foreground">Einfach erklärt, mit den aktuell wichtigsten Handelsregeln.</p>
+        <h2 className="font-heading text-lg font-bold">Die aktive Auswahl</h2>
+        <p className="text-sm text-muted-foreground">Nur die überarbeiteten Regeln, einfach erklärt.</p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         {strategies.map((s) => (
           <Card key={s.key} className="relative overflow-hidden">
             <div

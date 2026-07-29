@@ -36,6 +36,7 @@ BOTS = {
     "scout": {"label": "Der Spaeher", "prefix": "SCOUT_", "state": DATA_DIR / "scout_state.json"},
     "hodl": {"label": "Der HODLer", "prefix": "HODL_", "state": DATA_DIR / "hodl_state.json"},
     "futures_grid": {"label": "Treppen Turbo", "prefix": "GRIDFUT_", "state": DATA_DIR / "futures_grid_state.json"},
+    "futures_grid_signal": {"label": "Treppen Signal", "prefix": "GRIDSIG_", "state": DATA_DIR / "futures_grid_signal_state.json"},
 }
 
 
@@ -379,7 +380,7 @@ async def build_report() -> str:
             snaps[bot] = await equity_for_scout(cfg["prefix"], cfg["state"], bot)
         elif bot == "hodl":
             snaps[bot] = await equity_for_hodl(cfg["prefix"], cfg["state"], bot)
-        elif bot == "futures_grid":
+        elif bot in {"futures_grid", "futures_grid_signal"}:
             snaps[bot] = await equity_for_futures(cfg["prefix"], cfg["state"], bot)
         elif bot == "candlestick":
             snaps[bot] = await equity_for_candlestick(cfg["prefix"], cfg["state"], bot)
@@ -387,7 +388,8 @@ async def build_report() -> str:
             snaps[bot] = await equity_for_ultimate(cfg["prefix"], cfg["state"], bot)
         else:
             snaps[bot] = await equity_for(cfg["prefix"], cfg["state"], bot)
-    standard_snaps = {bot: snap for bot, snap in snaps.items() if bot != "futures_grid"}
+    leveraged_keys = {"futures_grid", "futures_grid_signal"}
+    standard_snaps = {bot: snap for bot, snap in snaps.items() if bot not in leveraged_keys}
     ranking = sorted(standard_snaps.items(), key=lambda kv: kv[1]["equity_eur"], reverse=True)
     lines = [f"🏁 Strategie-Battle — Tag {day}/{int(meta.get('duration_days', DURATION_DAYS))}", ""]
     for idx, (bot, s) in enumerate(ranking):
@@ -409,16 +411,16 @@ async def build_report() -> str:
             f"{longest_losing_streak(cfg['prefix']):>6}"
         )
     lines.append("```")
-    future = snaps["futures_grid"]
-    future_rows = rows_for_bot("futures_grid")
-    future_vals = [r[1] for r in future_rows]
-    future_pct = (future["equity_eur"] / 1000.0 - 1) * 100
     lines.append("")
     lines.append("⚡ Gesonderte Hebel-Wertung (1.000 € Startkapital, 2× Paper)")
-    lines.append(
-        f"Treppen Turbo {future['equity_eur']:.2f} € ({future_pct:+.1f} %) | "
-        f"offen {future['open_positions']} | MaxDD {max_drawdown(future_vals):+.1f}%"
-    )
+    for bot in ("futures_grid", "futures_grid_signal"):
+        future = snaps[bot]
+        future_vals = [row[1] for row in rows_for_bot(bot)]
+        future_pct = (future["equity_eur"] / 1000.0 - 1) * 100
+        lines.append(
+            f"{BOTS[bot]['label']} {future['equity_eur']:.2f} € ({future_pct:+.1f} %) | "
+            f"offen {future['open_positions']} | MaxDD {max_drawdown(future_vals):+.1f}%"
+        )
     lines.append("")
     lines.append("KPI: Ranking nach Netto-Equity (Cash + Mark-to-Market nach Gebühren), nicht nach realisiertem PnL.")
     lines.append("Fills: Kauf zum Ask, Verkauf zum Bid (echter Kraken-Spread).")

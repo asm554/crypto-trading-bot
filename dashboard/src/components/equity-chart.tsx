@@ -19,7 +19,7 @@ const config = {
   arb: { label: "Der Pedant", color: "var(--bot-arb)" },
   daytrade: { label: "Der Zappler", color: "var(--bot-daytrade)" },
   memecoin: { label: "Der Onchain", color: "var(--bot-memecoin)" },
-  pumpfun: { label: "Der PumpFun", color: "var(--bot-pumpfun)" },
+  pumpfun: { label: "Pump.fun Reclaim", color: "var(--bot-pumpfun)" },
   pumpfun_v2: { label: "Der PumpFun V2", color: "var(--bot-pumpfun-v2)" },
   surfer: { label: "Der Surfer", color: "var(--bot-surfer)" },
   candlestick: { label: "Der Kerzenreiter", color: "var(--bot-candlestick)" },
@@ -29,6 +29,7 @@ const config = {
   freqtrade: { label: "Freqtrade", color: "var(--bot-freqtrade)" },
   futures: { label: "Der Hebler", color: "var(--bot-futures)" },
   futures_grid: { label: "Treppensteiger Turbo", color: "var(--bot-futures-grid)" },
+  futures_grid_signal: { label: "Treppensteiger Signal", color: "var(--bot-futures-grid-signal)" },
 } satisfies ChartConfig;
 
 // Bei 6 Linien reicht Farbe allein nicht (Farbfehlsichtigkeit) — jede Linie
@@ -50,6 +51,7 @@ const DASH: Record<keyof typeof config, string | undefined> = {
   freqtrade: "6 2",
   futures: "10 2",
   futures_grid: "12 2 2 2",
+  futures_grid_signal: "4 2",
 };
 
 export function EquityChart({
