@@ -31,8 +31,8 @@ async def main():
     await init_db()
     await mark_bot_started("pumpfun")
     bot = PumpFunPaperBot(
-        initial_capital_eur=env("PUMP_BUDGET", 100.0, float),
-        position_eur=env("PUMP_POSITION_EUR", 5.0, float),
+        initial_capital_eur=env("PUMP_BUDGET", 500.0, float),
+        position_eur=env("PUMP_POSITION_EUR", 25.0, float),
         max_open_positions=env("PUMP_MAX_OPEN_POSITIONS", 2, int),
         min_age_sec=env("PUMP_MIN_AGE_SEC", 90, int),
         max_age_sec=env("PUMP_MAX_AGE_SEC", 21600, int),

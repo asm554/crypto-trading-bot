@@ -11,8 +11,8 @@ ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_pumpfun_v
 Restart=always
 RestartSec=30
 Environment=PYTHONUNBUFFERED=1
-Environment=PUMP2_BUDGET=100
-Environment=PUMP2_POSITION_EUR=10
+Environment=PUMP2_BUDGET=500
+Environment=PUMP2_POSITION_EUR=50
 Environment=PUMP2_MAX_OPEN_POSITIONS=3
 Environment=PUMP2_MIN_AGE_SEC=15
 Environment=PUMP2_MAX_AGE_SEC=3600

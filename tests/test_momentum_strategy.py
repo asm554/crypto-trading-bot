@@ -233,6 +233,86 @@ def test_manage_positions_exits_via_hard_stop(monkeypatch, tmp_path):
     asyncio.run(scenario())
 
 
+def test_loss_exit_gets_longer_cooldown_than_win_exit(monkeypatch, tmp_path):
+    """Verlust-Exits müssen den langen Cooldown bekommen, Gewinn-Exits den kurzen.
+
+    Hintergrund: Live kaufte der Bot dieselbe fallende Rally (ADAEUR) sechsmal
+    nacheinander, weil nach 6h Cooldown das 24h-Momentum noch im Entry-Band lag.
+    """
+    import time
+
+    db_path = tmp_path / "paper_trades.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def fake_fetch_ticker_data(_pairs):
+        # 95 < Hard-Stop (96): Verlust-Exit.
+        return {"SOLEUR": _valid_ticker(open_price="100", last="95", vol24="2000", vwap24="108")}
+
+    monkeypatch.setattr(momentum_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
+
+    async def scenario():
+        await paper_db.init_db()
+        bot = _bind_bot_to_tmp_storage(
+            MomentumBot(
+                initial_capital_eur=100.0, position_eur=12.0,
+                cooldown_sec=6 * 3600, cooldown_after_loss_sec=24 * 3600,
+                paper_mode=True,
+            ),
+            tmp_path,
+        )
+        trade_id = await paper_db.log_paper_trade("MOM_SOLEUR", "buy", 0.12, 100.0, 0.1, "paper")
+        bot.capital_remaining = 88.0
+        bot.portfolio = {
+            "SOLEUR": {"shares": 0.12, "cost_basis": 12.0, "entry_price": 100.0, "entry_ts": 0.0, "peak_price": 100.0, "trade_id": trade_id}
+        }
+
+        resolved = await bot.manage_positions()
+
+        assert len(resolved) == 1
+        assert resolved[0]["pnl"] < 0
+        # Cooldown muss deutlich länger als der normale 6h-Cooldown sein.
+        assert bot.cooldowns["SOLEUR"] > time.time() + 23 * 3600
+
+    asyncio.run(scenario())
+
+
+def test_win_exit_keeps_short_cooldown(monkeypatch, tmp_path):
+    import time
+
+    db_path = tmp_path / "paper_trades.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def fake_fetch_ticker_data(_pairs):
+        # Peak 130 gesetzt, Last 120: Trailing-Stop-Exit mit Gewinn (Entry 100).
+        return {"SOLEUR": _valid_ticker(open_price="100", last="120", vol24="2000", vwap24="108")}
+
+    monkeypatch.setattr(momentum_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
+
+    async def scenario():
+        await paper_db.init_db()
+        bot = _bind_bot_to_tmp_storage(
+            MomentumBot(
+                initial_capital_eur=100.0, position_eur=12.0,
+                cooldown_sec=6 * 3600, cooldown_after_loss_sec=24 * 3600,
+                paper_mode=True,
+            ),
+            tmp_path,
+        )
+        trade_id = await paper_db.log_paper_trade("MOM_SOLEUR", "buy", 0.12, 100.0, 0.1, "paper")
+        bot.capital_remaining = 88.0
+        bot.portfolio = {
+            "SOLEUR": {"shares": 0.12, "cost_basis": 12.0, "entry_price": 100.0, "entry_ts": 0.0, "peak_price": 130.0, "trade_id": trade_id}
+        }
+
+        resolved = await bot.manage_positions()
+
+        assert len(resolved) == 1
+        assert resolved[0]["pnl"] > 0
+        # Gewinn-Exit: normaler 6h-Cooldown, nicht der 24h-Verlust-Cooldown.
+        assert bot.cooldowns["SOLEUR"] <= time.time() + 6 * 3600 + 60
+    asyncio.run(scenario())
+
+
 def test_momentum_bot_is_hard_paper_only():
     with pytest.raises(NotImplementedError):
         MomentumBot(paper_mode=False)

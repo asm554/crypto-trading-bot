@@ -11,11 +11,11 @@ ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_scout
 Restart=always
 RestartSec=30
 Environment=PYTHONUNBUFFERED=1
-Environment=SCOUT_BUDGET=100
+Environment=SCOUT_BUDGET=500
 Environment=SCOUT_INTERVAL_SEC=30
-Environment=SCOUT_POSITION_EUR=5
+Environment=SCOUT_POSITION_EUR=25
 Environment=SCOUT_MAX_OPEN_POSITIONS=2
-Environment=SCOUT_CASH_RESERVE_EUR=85
+Environment=SCOUT_CASH_RESERVE_EUR=425
 Environment=SCOUT_MATURITY_MIN=20
 Environment=SCOUT_MAX_POOL_AGE_H=12
 Environment=SCOUT_MIN_SCORE=60

@@ -23,7 +23,7 @@ export default function SettingsPage() {
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
           Alle Bots handeln im <span className="font-medium text-foreground">Papier-Modus</span> — es
-          wird kein echtes Geld eingesetzt. Jeder startet mit 100&nbsp;€ Spielgeld.
+          wird kein echtes Geld eingesetzt. Jeder startet mit 500&nbsp;€ Spielgeld.
         </p>
       </div>
 

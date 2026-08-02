@@ -39,7 +39,7 @@ logger.addHandler(handler)
 logger.addHandler(logging.StreamHandler())
 
 # Konfiguration via Umgebungsvariablen (mit Fallbacks)
-BUDGET_EUR      = float(os.getenv("DCA_BUDGET", "100"))
+BUDGET_EUR      = float(os.getenv("DCA_BUDGET", "500"))
 INTERVAL_H      = float(os.getenv("DCA_INTERVAL_H", "4"))
 TOP_N           = int(os.getenv("DCA_TOP_N", "2"))
 PAPER_MODE      = os.getenv("DCA_PAPER_MODE", "true").lower() == "true"
@@ -51,16 +51,16 @@ MIN_EDGE_PCT            = float(os.getenv("DCA_MIN_EDGE_PCT", "1.20"))
 NEG_STREAK_LIMIT        = int(os.getenv("DCA_NEG_STREAK_LIMIT", "2"))
 COIN_COOLDOWN_H         = float(os.getenv("DCA_COIN_COOLDOWN_H", "8"))
 ROLLING_WINDOW          = int(os.getenv("DCA_ROLLING_WINDOW", "6"))
-ROLLING_LOSS_LIMIT_EUR  = float(os.getenv("DCA_ROLLING_LOSS_LIMIT_EUR", "-1.00"))
+ROLLING_LOSS_LIMIT_EUR  = float(os.getenv("DCA_ROLLING_LOSS_LIMIT_EUR", "-5.00"))
 RISK_OFF_H              = float(os.getenv("DCA_RISK_OFF_H", "4"))
 TAKE_PROFIT_PCT         = float(os.getenv("DCA_TAKE_PROFIT_PCT", "0.03"))
 STOP_LOSS_PCT           = float(os.getenv("DCA_STOP_LOSS_PCT", "0.0"))
 # Verlust-Backstop: nach 14 Tagen erzwungener Time-Exit (darf auch Minus realisieren).
 MAX_HOLD_SEC            = int(os.getenv("DCA_MAX_HOLD_SEC", "1209600"))
-MIN_NET_PROFIT_EUR      = float(os.getenv("DCA_MIN_NET_PROFIT_EUR", "0.15"))
+MIN_NET_PROFIT_EUR      = float(os.getenv("DCA_MIN_NET_PROFIT_EUR", "0.75"))
 MAX_OPEN_POSITIONS      = int(os.getenv("DCA_MAX_OPEN_POSITIONS", "2"))
-MAX_PAIR_EXPOSURE_EUR   = float(os.getenv("DCA_MAX_PAIR_EXPOSURE_EUR", "20"))
-MIN_CASH_RESERVE_EUR    = float(os.getenv("DCA_MIN_CASH_RESERVE_EUR", "10"))
+MAX_PAIR_EXPOSURE_EUR   = float(os.getenv("DCA_MAX_PAIR_EXPOSURE_EUR", "100"))
+MIN_CASH_RESERVE_EUR    = float(os.getenv("DCA_MIN_CASH_RESERVE_EUR", "50"))
 
 # Markt-/Recovery-Filter
 TREND_FILTER_ENABLED        = os.getenv("DCA_TREND_FILTER_ENABLED", "true").lower() == "true"
@@ -68,7 +68,7 @@ BTC_RISK_OFF_PCT            = float(os.getenv("DCA_BTC_RISK_OFF_PCT", "-2.0"))
 ETH_RISK_OFF_PCT            = float(os.getenv("DCA_ETH_RISK_OFF_PCT", "-3.0"))
 RECOVERY_TRIGGER_PCT        = float(os.getenv("DCA_RECOVERY_TRIGGER_PCT", "-5.0"))
 RECOVERY_REVERSAL_PCT       = float(os.getenv("DCA_RECOVERY_REVERSAL_PCT", "0.8"))
-RECOVERY_TICKET_EUR         = float(os.getenv("DCA_RECOVERY_TICKET_EUR", "5.0"))
+RECOVERY_TICKET_EUR         = float(os.getenv("DCA_RECOVERY_TICKET_EUR", "25.0"))
 RECOVERY_MAX_EXPOSURE_FACTOR = float(os.getenv("DCA_RECOVERY_MAX_EXPOSURE_FACTOR", "1.5"))
 
 

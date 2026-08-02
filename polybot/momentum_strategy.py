@@ -35,6 +35,7 @@ class MomentumBot:
         hard_stop_pct: float = 4.0,
         max_hold_sec: int = 48 * 3600,
         cooldown_sec: int = 6 * 3600,
+        cooldown_after_loss_sec: int = 24 * 3600,
         paper_mode: bool = True,
         snapshot_interval_sec: int = 3600,
     ):
@@ -50,6 +51,7 @@ class MomentumBot:
         self.hard_stop_pct = float(hard_stop_pct)
         self.max_hold_sec = int(max_hold_sec)
         self.cooldown_sec = int(cooldown_sec)
+        self.cooldown_after_loss_sec = int(cooldown_after_loss_sec)
         self.paper_mode = bool(paper_mode)
         self.snapshot_interval_sec = int(snapshot_interval_sec)
         if not self.paper_mode:
@@ -208,7 +210,12 @@ class MomentumBot:
                 self._save_state()
                 return resolved
             self.capital_remaining += entry_cost + real_pnl
-            self.cooldowns[pair] = now + self.cooldown_sec
+            # Verlust-Exits bekommen einen längeren Cooldown als Gewinn-Exits:
+            # Live-Daten zeigten 6 ADAEUR-Verluste in Serie, weil der Bot nach
+            # 6h Cooldown dieselbe fallende Rally immer wieder nachgekauft hat
+            # (gleiches Muster wie cooldown_after_stop_sec in memecoin_strategy).
+            cooldown = self.cooldown_after_loss_sec if real_pnl < 0 else self.cooldown_sec
+            self.cooldowns[pair] = now + cooldown
             self.portfolio.pop(pair, None)
             resolved.append({"pair": pair, "reason": reason, "pnl": real_pnl})
             logger.info("✅ MOM Exit %s: %s @ %.6f€ (Last %.6f€) | PnL %+0.4f€", pair, reason, exit_price, last, real_pnl)
