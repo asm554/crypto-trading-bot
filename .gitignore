@@ -17,6 +17,8 @@ auth.json
 
 # Runtime data / logs
 logs/
+backtest/data/
+backtest/logs/
 *.log
 polybot/data/
 *.db
