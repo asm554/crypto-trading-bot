@@ -11,6 +11,7 @@ from polybot import config
 from polybot import paper_db as paper_db_module
 from polybot.alerts import send_telegram
 from polybot.dca_strategy import PAIR_MAP, extract_quote, fetch_ticker_data
+from polybot.futures_strategy import fetch_eur_usd_rate, fetch_futures_tickers, position_mark_to_market
 from polybot.memecoin_strategy import DEFAULT_DEX_FEE_PCT, DEFAULT_SLIPPAGE_PCT, EURUSD_INTERNAL, EURUSD_PAIR, FALLBACK_EUR_USD_RATE, fetch_pairs_by_address
 from polybot.scout_strategy import fetch_scout_prices
 from polybot.candlestick_strategy import SOL_MINT, USDC_MINT, fetch_jupiter_quote
@@ -35,6 +36,7 @@ BOTS = {
     "ultimate": {"label": "Der Ultimative", "prefix": "ULT_", "state": DATA_DIR / "ultimate_state.json"},
     "scout": {"label": "Der Spaeher", "prefix": "SCOUT_", "state": DATA_DIR / "scout_state.json"},
     "hodl": {"label": "Der HODLer", "prefix": "HODL_", "state": DATA_DIR / "hodl_state.json"},
+    "futures": {"label": "Der Hebler", "prefix": "FUT_", "state": DATA_DIR / "futures_state.json"},
     "futures_grid": {"label": "Treppen Turbo", "prefix": "GRIDFUT_", "state": DATA_DIR / "futures_grid_state.json"},
 }
 
@@ -243,6 +245,51 @@ async def equity_for_futures(prefix: str, state_path: Path, bot: str) -> dict:
     return snap
 
 
+async def equity_for_perp_futures(prefix: str, state_path: Path, bot: str) -> dict:
+    """Value isolated Kraken perpetual positions including fees and funding.
+
+    Nicht zu verwechseln mit ``equity_for_futures`` — das bewertet den
+    ETH-Grid-Bot (GRIDFUT_) aus seiner Orderliste, während "Der Hebler" (FUT_)
+    ein ``portfolio``-Dict aus Perpetual-Positionen hält.
+    """
+    try:
+        state = json.loads(state_path.read_text())
+    except Exception:
+        state = {}
+    cash = float(state.get("capital_remaining", 500.0))
+    portfolio = state.get("portfolio") or {}
+    symbols = list(portfolio)
+    tickers, eur_usd = await asyncio.gather(
+        fetch_futures_tickers(symbols) if symbols else asyncio.sleep(0, result={}),
+        fetch_eur_usd_rate(),
+    )
+    open_value = 0.0
+    unrealized = 0.0
+    taker_fee = float(state.get("taker_fee_rate", 0.0005))
+    now = time.time()
+    for symbol, position in portfolio.items():
+        value, pnl = position_mark_to_market(
+            position,
+            tickers.get(symbol),
+            eur_usd,
+            taker_fee,
+            include_pending_funding=True,
+            now=now,
+        )
+        open_value += value
+        unrealized += pnl
+    realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
+    snap = {
+        "equity_eur": cash + open_value,
+        "cash_eur": cash,
+        "open_positions": len(portfolio),
+        "unrealized_pnl_eur": unrealized,
+        "realized_pnl_eur": realized,
+    }
+    await log_equity_snapshot(bot, **snap)
+    return snap
+
+
 async def equity_for_candlestick(prefix: str, state_path: Path, bot: str) -> dict:
     """Value the SOL/USDC paper position from a read-only Jupiter exit quote."""
     try:
@@ -401,6 +448,8 @@ async def build_report() -> str:
             snaps[bot] = await equity_for_scout(cfg["prefix"], cfg["state"], bot)
         elif bot == "hodl":
             snaps[bot] = await equity_for_hodl(cfg["prefix"], cfg["state"], bot)
+        elif bot == "futures":
+            snaps[bot] = await equity_for_perp_futures(cfg["prefix"], cfg["state"], bot)
         elif bot == "futures_grid":
             snaps[bot] = await equity_for_futures(cfg["prefix"], cfg["state"], bot)
         elif bot == "candlestick":
@@ -420,7 +469,7 @@ async def build_report() -> str:
     lines.append("")
     lines.append("```")
     lines.append("           Equity   offen  real.PnL  Trades  MaxDD  UW(h)  Serie")
-    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "candlestick", "ultimate", "scout", "hodl"]:
+    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "candlestick", "ultimate", "scout", "hodl", "futures"]:
         cfg = BOTS[bot]
         s = snaps[bot]
         rows = rows_for_bot(bot)

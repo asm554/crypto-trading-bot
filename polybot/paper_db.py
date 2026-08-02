@@ -297,6 +297,20 @@ async def resolve_trade(trade_id: int, exit_price: float, real_pnl: float) -> bo
     return True
 
 
+async def update_unrealized_pnls(values: dict[int, float]) -> None:
+    """Aktualisiert den aktuellen Netto-PnL offener Positionen in einem DB-Lauf."""
+    if not values:
+        return
+    aiosqlite = _require_aiosqlite()
+    rows = [(float(pnl), int(trade_id)) for trade_id, pnl in values.items()]
+    async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
+        await db.executemany(
+            "UPDATE paper_trades SET unrealized_pnl=? WHERE id=? AND resolved_at IS NULL",
+            rows,
+        )
+        await db.commit()
+
+
 def prefix_like_pattern(prefix: str) -> str:
     """Build an escaped SQL LIKE pattern that treats a bot prefix literally."""
     escaped = str(prefix).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
