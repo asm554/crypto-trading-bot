@@ -7,7 +7,7 @@ import "server-only";
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "candlestick" | "ultimate" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "candlestick" | "ultimate" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid" | "futures_grid_signal";
 
 type BotMeta = {
   key: BotKey;
@@ -78,10 +78,10 @@ export const BOTS: BotMeta[] = [
   },
   {
     key: "pumpfun",
-    name: "Pump.fun",
-    nickname: "Der PumpFun",
+    name: "Pullback/Reclaim",
+    nickname: "Der PumpFun Reclaim",
     prefix: "PUMP_",
-    tagline: "Verfolgt Pump.fun-Bonding-Curve-Events als separaten Paper-Trading-Bot.",
+    tagline: "Kauft nicht mehr in den Pump, sondern erst nach einem kontrollierten Rücksetzer und bestätigter Erholung.",
     startingCapitalEur: 500,
   },
   {
@@ -137,7 +137,44 @@ export const BOTS: BotMeta[] = [
     tagline: "Kauft ETH in 0,8-%-Stufen mit 2× Paper-Hebel und fest begrenzter isolierter Margin.",
     startingCapitalEur: 5000,
   },
+  {
+    key: "futures_grid_signal",
+    name: "2× Signal Grid",
+    nickname: "Der Treppensteiger Signal",
+    prefix: "GRIDSIG_",
+    tagline: "Handelt nur bestätigte Aufwärtstrends, setzt 125 € je Stufe ein und pausiert nach einem Verlust 30 Tage.",
+    startingCapitalEur: 5000,
+  },
 ];
+
+// Nur diese überarbeiteten Strategien gehören noch zur aktiven Runde.
+// Die übrigen Metadaten bleiben erhalten, damit alte Trade-Detailseiten weiterhin
+// verständliche Bot-Namen und Farben anzeigen können.
+export const STANDARD_ACTIVE_BOT_KEYS = [
+  "dca",
+  "momentum",
+  "meanrev",
+  "daytrade",
+  "memecoin",
+  "surfer",
+  "ultimate",
+  "pumpfun",
+] as const satisfies readonly BotKey[];
+export const LEVERAGED_ACTIVE_BOT_KEYS = [
+  "futures_grid_signal",
+] as const satisfies readonly BotKey[];
+export const ACTIVE_BOT_KEYS = [
+  ...STANDARD_ACTIVE_BOT_KEYS,
+  ...LEVERAGED_ACTIVE_BOT_KEYS,
+] as const satisfies readonly BotKey[];
+export const ACTIVE_ROUND_STARTED_AT = 1785354759;
+export const ACTIVE_BOTS = BOTS.filter((bot) =>
+  (ACTIVE_BOT_KEYS as readonly BotKey[]).includes(bot.key),
+);
+
+export function isActiveBotKey(key: BotKey | "?"): key is (typeof ACTIVE_BOT_KEYS)[number] {
+  return (ACTIVE_BOT_KEYS as readonly string[]).includes(key);
+}
 
 export type BotSummary = {
   key: BotKey;
@@ -181,6 +218,10 @@ export type TradeRow = {
   resolvedAt: number | null;
 };
 
+export function isCurrentRoundTrade(trade: TradeRow): boolean {
+  return isActiveBotKey(trade.botKey) && trade.timestamp >= ACTIVE_ROUND_STARTED_AT;
+}
+
 export type PricePoint = { t: number; price: number };
 
 export type TradeDetail = TradeRow & {
@@ -194,6 +235,7 @@ export type TradeDetail = TradeRow & {
   lowPrice: number;
   targetPrice: number | null;
   breakEvenPrice: number | null;
+  exitPlan: string;
 };
 
 export type EquityPoint = {
@@ -214,6 +256,7 @@ export type EquityPoint = {
   freqtrade: number | null;
   futures: number | null;
   futures_grid: number | null;
+  futures_grid_signal: number | null;
 };
 
 type RawTrade = {
@@ -282,13 +325,18 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
   const [trades, snapshots] = await Promise.all([fetchAllTrades(), fetchAllSnapshots()]);
 
   return Promise.all(BOTS.map(async (bot) => {
-    const botTrades = trades.filter((t) => t.market_question.startsWith(bot.prefix));
+    const roundStartedAt = isActiveBotKey(bot.key) ? ACTIVE_ROUND_STARTED_AT : 0;
+    const botTrades = trades.filter(
+      (t) => t.market_question.startsWith(bot.prefix) && num(t.timestamp) >= roundStartedAt,
+    );
     const openTrades = botTrades.filter((t) => t.resolved_at == null);
     const doneTrades = botTrades.filter((t) => t.resolved_at != null);
     const displayTrades = displayTradesForBot(bot, botTrades);
     const displayDoneTrades = displayTrades.filter((t) => t.resolved_at != null);
 
-    const botSnaps = snapshots.filter((s) => s.bot === bot.key);
+    const botSnaps = snapshots.filter(
+      (s) => s.bot === bot.key && num(s.ts) >= roundStartedAt,
+    );
     const latestSnap = botSnaps[botSnaps.length - 1];
 
     // Der neueste Snapshot ist die maßgebliche, zeitgleiche Bewertung. Die
@@ -309,7 +357,9 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const firstSnapshotTs = botSnaps.reduce((min, s) => Math.min(min, num(s.ts)), Infinity);
     const startedAt = Math.min(firstTradeTs, firstSnapshotTs);
     const lastActivity = Math.max(lastTradeTs, latestSnap ? num(latestSnap.ts) : 0) || null;
-    const runtimeSnapshots = snapshots.filter((s) => s.bot === `__runtime_${bot.key}`);
+    const runtimeSnapshots = snapshots.filter(
+      (s) => s.bot === `__runtime_${bot.key}` && num(s.ts) >= roundStartedAt,
+    );
     const runtime = runtimeSnapshots[runtimeSnapshots.length - 1];
 
     const totalPnl = equity - startingCapitalEur;
@@ -372,10 +422,13 @@ function exitRuleFor(key: BotKey): { feeRate: number | null; targetPct: number |
   switch (key) {
     case "dca": return { feeRate: spotFee, targetPct: 0.03, label: "+3 % Gewinnziel" };
     case "meanrev": return { feeRate: spotFee, targetPct: 0.04, label: "+4 % Gewinnziel" };
-    case "futures_grid": return { feeRate: spotFee, targetPct: 0.011, label: "+1,1 % über Durchschnitt" };
+    case "futures_grid":
+      return { feeRate: 0.0005, targetPct: 0.011, label: "+1,1 % über Durchschnitt" };
+    case "futures_grid_signal":
+      return { feeRate: 0.0005, targetPct: 0.012, label: "+1,2 % über Durchschnitt" };
     case "freqtrade": return { feeRate: 0.0025, targetPct: 0.06, label: "+6 % ROI-Regel" };
     case "memecoin": return { feeRate: null, targetPct: 0.15, label: "+15 % Ziel, dann Trailing" };
-    case "pumpfun": return { feeRate: null, targetPct: 0.30, label: "+30 % Ziel, dann Trailing" };
+    case "pumpfun": return { feeRate: null, targetPct: 0.20, label: "+20 % Ziel, dann Trailing" };
     case "pumpfun_v2": return { feeRate: null, targetPct: 0.25, label: "+25 % Ziel, dann Trailing" };
     case "scout": return { feeRate: null, targetPct: 0.25, label: "+25 % Gewinnziel" };
     case "momentum": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −2,5 % vom Hoch" };
@@ -415,7 +468,7 @@ function toTradeRow(r: RawTrade): TradeRow {
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
   const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout"
     ? rest.split("@")[0]
-    : meta?.key === "hodl" || meta?.key === "futures" || meta?.key === "futures_grid"
+    : meta?.key === "hodl" || meta?.key === "futures" || meta?.key === "futures_grid" || meta?.key === "futures_grid_signal"
       ? rest.split("_")[0]
       : rest;
   return {
@@ -590,8 +643,9 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
   }
   const prices = priceSeries.map((point) => point.price);
   const latestPrice = row.exitPrice ?? prices[prices.length - 1] ?? row.entryPrice;
-  const targetPct = meta?.key === "freqtrade" ? 0.06 : meta?.key === "futures_grid" ? 0.011 : null;
-  const roundTripFee = meta?.key === "freqtrade" ? 0.0025 : null;
+  const exitRule = meta
+    ? exitRuleFor(meta.key)
+    : { feeRate: null, targetPct: null, label: "Kein Exit-Plan verfügbar" };
   return {
     ...row,
     marketQuestion: raw.market_question,
@@ -602,10 +656,13 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
     currentPriceSource,
     highPrice: Math.max(...prices, row.entryPrice, latestPrice),
     lowPrice: Math.min(...prices, row.entryPrice, latestPrice),
-    targetPrice: targetPct == null ? null : row.entryPrice * (1 + targetPct),
-    breakEvenPrice: roundTripFee == null
+    targetPrice: exitRule.targetPct == null
       ? null
-      : row.entryPrice * (1 + roundTripFee) / (1 - roundTripFee),
+      : row.entryPrice * (1 + exitRule.targetPct),
+    breakEvenPrice: exitRule.feeRate == null
+      ? null
+      : row.entryPrice * (1 + exitRule.feeRate) / (1 - exitRule.feeRate),
+    exitPlan: exitRule.label,
   };
 }
 
@@ -613,10 +670,16 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
   const snapshots = await fetchAllSnapshots();
   const byTime = new Map<number, EquityPoint>();
   for (const r of snapshots) {
+    if (
+      (ACTIVE_BOT_KEYS as readonly string[]).includes(r.bot)
+      && num(r.ts) < ACTIVE_ROUND_STARTED_AT
+    ) {
+      continue;
+    }
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, candlestick: null, ultimate: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, candlestick: null, ultimate: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null, futures_grid_signal: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -641,8 +704,9 @@ export type SettingsView = {
 
 export function getSettings(): SettingsView {
   const fees: StrategyParam[] = [
-    { label: "Gebühr pro Kauf/Verkauf", value: "0.40 %", hint: "Wird bei jedem Trade abgezogen (Kraken Taker)." },
-    { label: "Gebühr (Maker)", value: "0.16 %", hint: "Falls als Maker gehandelt wird." },
+    { label: "Kraken Spot-Gebühr", value: "0,40 %", hint: "Im Paper-Modell für Kauf und Verkauf berücksichtigt." },
+    { label: "Treppensteiger-Gebühr je Seite", value: "0,05 %", hint: "Für den separaten 2×-Signal-Bot." },
+    { label: "Pump.fun Ausführung", value: "Curve + simulierte Gebühr", hint: "Kein echter Wallet-Handel." },
     { label: "Modus", value: "Papierhandel", hint: "Es wird kein echtes Geld eingesetzt." },
     { label: "Startkapital", value: "500 € Standard-Battle/Hebler; 5.000 € Treppensteiger; 1.000 € Freqtrade" },
   ];
@@ -662,6 +726,25 @@ export function getSettings(): SettingsView {
         { label: "Max. Nachkäufe", value: "50" },
         { label: "Gewinnmitnahme", value: "+1,1 %" },
         { label: "Margin-Wächter", value: "1,25× Maintenance", hint: "Schließt vor der simulierten Liquidation." },
+      ],
+    },
+    {
+      key: "futures_grid_signal",
+      name: "2× Signal Grid",
+      nickname: "Der Treppensteiger Signal",
+      purpose: "Prüft, ob Rücksetzer-, Trend- und Erholungssignale den ursprünglichen Treppensteiger stabiler machen.",
+      currentBehavior: "Startet nur in einem klaren Aufwärtstrend mit positiver 12-Stunden-Bewegung. Neue Preisstufen werden zunächst vorgemerkt und erst nach sichtbarer Erholung gekauft. Nach einem Verlust bleibt der Bot 30 Tage an der Seitenlinie.",
+      params: [
+        { label: "Startkapital", value: "5.000 €" },
+        { label: "Hebel", value: "2× isoliert" },
+        { label: "Margin je Stufe", value: "125 €", hint: "Entspricht 250 € Positionswert." },
+        { label: "Stufenabstand", value: "dynamisch 0,8–1,6 %" },
+        { label: "Max. Stufen gesamt", value: "8" },
+        { label: "Pause nach Gewinn", value: "12 Std." },
+        { label: "Pause nach Verlust", value: "30 Tage" },
+        { label: "Gewinnmitnahme", value: "+1,2 % über Durchschnitt" },
+        { label: "Zyklus-Verlustgrenze", value: "−3 % vom Zyklus-Startkapital" },
+        { label: "Spätestes Ende", value: "21 Tage" },
       ],
     },
     {
@@ -769,21 +852,22 @@ export function getSettings(): SettingsView {
       key: "pumpfun",
       name: "Pump.fun",
       nickname: "Der PumpFun",
-      purpose: "Beobachtet neue Pump.fun-Token während der Bonding Curve und nach ihrer Migration.",
-      currentBehavior: "Handelt rein simuliert mit 25 €, verlangt Momentum und Kaufdruck und hält frühe Positionen maximal 45 Minuten.",
+      purpose: "Beobachtet neue Pump.fun-Token und wartet nach dem ersten Anstieg auf einen kontrollierten Rücksetzer mit bestätigter Erholung.",
+      currentBehavior: "Handelt rein simuliert mit 10 € und höchstens einer Position. Ein gerader Pump wird nicht mehr gekauft: Erst Anstieg, dann 7–25 % Rücksetzer und anschließend neuer Kaufdruck lösen einen Einstieg aus.",
       params: [
         { label: "Datenquelle", value: "PumpPortal WebSocket", hint: "Neue Token und Trades; keine Wallet und keine Orders." },
         { label: "Modus", value: "100 % Paper-Trading" },
-        { label: "Positionsgröße", value: "25 €" },
-        { label: "Phasen", value: "Early Bonding Curve + Migration/Post-Migration" },
-        { label: "Entry Early", value: "+10 % bis +35 % Market-Cap-Momentum", hint: "Mindestens 20 Trades, 8 eindeutige Trader und positiver 30-Sekunden-Impuls." },
-        { label: "Kaufdruck", value: "mindestens 1,4× Buy/Sell" },
+        { label: "Positionsgröße", value: "10 €" },
+        { label: "Phasen", value: "Neue Entries nur Early Bonding Curve", hint: "Bereits offene Positionen werden auch nach einer Migration weiter überwacht." },
+        { label: "Vorheriger Anstieg", value: "mindestens +18 %" },
+        { label: "Kontrollierter Rücksetzer", value: "−7 % bis −25 % vom Hoch" },
+        { label: "Bestätigte Erholung", value: "+2 % bis +10 % in 30 Sek.", hint: "Mindestens 6 neue Trades und Buy/Sell ≥ 1,2 in der letzten Minute." },
+        { label: "Mindestaktivität", value: "30 Trades · 12 Trader · Buy/Sell ≥ 1,4" },
         { label: "Curve-Fill", value: "virtuelle Reserven + simulierte Gebühr" },
-        { label: "Verlust-Bremse", value: "−20 %" },
-        { label: "Gewinnsicherung", value: "+30 %, Trailing-Floor +15 %" },
-        { label: "Max. Haltedauer Early", value: "45 Min." },
-        { label: "Max. Haltedauer migriert", value: "6 Std." },
-        { label: "Max. offene Positionen", value: "2" },
+        { label: "Verlust-Bremse", value: "−12 %" },
+        { label: "Gewinnsicherung", value: "+20 %, Trailing 8 %, Floor +5 %" },
+        { label: "Max. Haltedauer Early", value: "20 Min." },
+        { label: "Max. offene Positionen", value: "1" },
       ],
     },
     {
@@ -904,7 +988,12 @@ export function getSettings(): SettingsView {
     ] },
   ];
 
-  return { fees, strategies };
+  return {
+    fees,
+    strategies: strategies.filter((strategy) =>
+      (ACTIVE_BOT_KEYS as readonly BotKey[]).includes(strategy.key),
+    ),
+  };
 }
 
 function round2(n: number): number {

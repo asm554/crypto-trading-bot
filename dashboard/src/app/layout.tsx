@@ -19,8 +19,8 @@ const bricolage = Bricolage_Grotesque({
 });
 
 export const metadata: Metadata = {
-  title: "Trading-Bots · Übersicht",
-  description: "Fünf Paper-Trading-Bots im Battle — wer macht am meisten aus 100 €?",
+  title: "Bot-Battle · Optimierte Strategien",
+  description: "Die verbesserten Paper-Trading-Strategien im übersichtlichen Live-Vergleich.",
 };
 
 export default function RootLayout({

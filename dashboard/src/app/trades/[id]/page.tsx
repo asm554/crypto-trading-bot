@@ -71,7 +71,7 @@ export default async function TradeDetailPage({
         />
       </div>
 
-      {trade.targetPrice != null && trade.breakEvenPrice != null && (
+      {(trade.targetPrice != null || trade.breakEvenPrice != null || trade.exitPlan) && (
         <Card className={cn("overflow-hidden", violatesCurrentExitRule && "border-amber-500/40")}>
           <CardContent className="grid gap-4 py-4 md:grid-cols-[auto_1fr_1fr_1fr] md:items-center">
             <div className={cn(
@@ -82,13 +82,20 @@ export default async function TradeDetailPage({
             </div>
             <div>
               <div className="text-xs text-muted-foreground">Gebühren-Break-even</div>
-              <div className="mt-1 font-mono font-semibold">{formatPrice(trade.breakEvenPrice)}</div>
+              <div className="mt-1 font-mono font-semibold">
+                {trade.breakEvenPrice == null ? "modellabhängig" : formatPrice(trade.breakEvenPrice)}
+              </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">Aktuelle Exit-Regel</div>
+              <div className="text-xs text-muted-foreground">Geplanter Exit</div>
               <div className="mt-1 font-mono font-semibold text-emerald-400">
-                {formatPrice(trade.targetPrice)} ({signedPct((trade.targetPrice / trade.entryPrice - 1) * 100)})
+                {trade.targetPrice == null
+                  ? trade.exitPlan
+                  : `${formatPrice(trade.targetPrice)} (${signedPct((trade.targetPrice / trade.entryPrice - 1) * 100)})`}
               </div>
+              {trade.targetPrice != null && (
+                <div className="mt-1 text-xs text-muted-foreground">{trade.exitPlan}</div>
+              )}
             </div>
             <div>
               <div className="text-xs text-muted-foreground">Bewertung dieses Exits</div>
@@ -124,6 +131,8 @@ export default async function TradeDetailPage({
             exitTs={trade.resolvedAt}
             breakEvenPrice={trade.breakEvenPrice}
             currentPrice={trade.currentPrice}
+            plannedExitPrice={trade.targetPrice}
+            exitPlan={trade.exitPlan}
           />
         </CardContent>
       </Card>
@@ -142,8 +151,9 @@ export default async function TradeDetailPage({
               <DetailRow label="Gebühren-Break-even" value={formatPrice(trade.breakEvenPrice)} mono />
             )}
             {trade.targetPrice != null && (
-              <DetailRow label="Aktueller Ziel-Exit" value={formatPrice(trade.targetPrice)} mono />
+              <DetailRow label="Geplanter Ziel-Exit" value={formatPrice(trade.targetPrice)} mono />
             )}
+            <DetailRow label="Exit-Regel" value={trade.exitPlan} />
             <DetailRow label="Haltedauer" value={formatDuration(durationEnd - trade.timestamp)} />
           </CardContent>
         </Card>
@@ -154,8 +164,8 @@ export default async function TradeDetailPage({
           <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
             <p>
               Die durchgezogene Linie zeigt den Marktpreis. Die gestrichelten Linien markieren
-              tatsächlichen Entry und – falls vorhanden – Exit. Die türkisfarbene Linie zeigt
-              den aktuellen Marktpreis; die graue Linie den Gebühren-Break-even.
+              Kauf, Break-even, aktuellen Kurs und den geplanten Ziel-Exit. Bei einem bereits
+              geschlossenen Trade wird der tatsächliche Verkauf zusätzlich markiert.
             </p>
             <p>
               Das Trade-Ergebnis berücksichtigt die simulierten Gebühren. Die reine Kursbewegung

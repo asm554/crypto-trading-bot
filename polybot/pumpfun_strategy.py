@@ -1,8 +1,10 @@
-"""Pump.fun early-curve + migration paper trader.
+"""Pump.fun pullback/reclaim paper trader.
 
 Paper-only: the module consumes PumpPortal events but never creates, signs, or
-submits Solana transactions. Early fills use the event's virtual bonding-curve
-reserves; migrated fills use market-cap movement plus configured impact/fees.
+submits Solana transactions. New entries require a prior pump, a controlled
+pullback and a fresh reclaim with active buyers. Early fills use the event's
+virtual bonding-curve reserves; migrated positions are still managed, but new
+migrated entries are disabled by default until separately backtested.
 """
 from __future__ import annotations
 
@@ -55,23 +57,34 @@ def pumpswap_fee_pct(market_cap_sol: float) -> float:
 
 
 class PumpFunPaperBot:
-    def __init__(self, initial_capital_eur=100.0, position_eur=5.0,
-                 max_open_positions=2, max_candidates=500,
-                 min_age_sec=90, max_age_sec=6 * 3600,
-                 min_market_cap_sol=20.0, max_market_cap_sol=350.0,
-                 migrated_max_market_cap_sol=2000.0, min_change_pct=10.0,
-                 max_change_pct=35.0, migrated_min_change_pct=6.0,
-                 migrated_max_change_pct=50.0, min_trades=20,
-                 migrated_min_trades=10, min_unique_traders=8,
+    def __init__(self, initial_capital_eur=100.0, position_eur=2.0,
+                 max_open_positions=1, max_candidates=500,
+                 min_age_sec=180, max_age_sec=40 * 60,
+                 min_market_cap_sol=25.0, max_market_cap_sol=300.0,
+                 migrated_max_market_cap_sol=2000.0, min_change_pct=6.0,
+                 max_change_pct=28.0, migrated_min_change_pct=6.0,
+                 migrated_max_change_pct=50.0, min_trades=30,
+                 migrated_min_trades=10, min_unique_traders=12,
                  min_buy_sell_ratio=1.4, min_recent_change_pct=2.0,
-                 stop_loss_pct=20.0, take_profit_pct=30.0,
-                 trailing_stop_pct=15.0, trail_floor_pct=15.0,
-                 max_hold_sec=45 * 60, migrated_max_hold_sec=6 * 3600,
+                 # Signal- und Exit-Parameter aus der v3-Pullback-Reclaim-
+                 # Variante; api_key/Metering stammen aus dem Gebührenmodell
+                 # und sind davon unabhängig — beides wird gebraucht.
+                 max_recent_change_pct=10.0, min_peak_change_pct=18.0,
+                 min_pullback_pct=7.0, max_pullback_pct=25.0,
+                 recent_activity_sec=60, min_recent_trades=6,
+                 min_recent_buy_sell_ratio=1.2,
+                 allow_migrated_entries=False,
+                 stop_loss_pct=12.0, take_profit_pct=20.0,
+                 trailing_stop_pct=8.0, trail_floor_pct=5.0,
+                 max_hold_sec=20 * 60, migrated_max_hold_sec=6 * 3600,
+                 # 1.25 statt der 1.0 aus der Signalfilter-Variante: die
+                 # gestaffelte PUMPSWAP_SOL_FEE_SCHEDULE beginnt bei 1.25 % und
+                 # ist das genauere Gebührenmodell.
                  platform_fee_pct=1.25, migrated_slippage_pct=2.5,
                  paper_mode=True, snapshot_interval_sec=3600,
                  prefix=PREFIX, bot_key=BOT_KEY,
                  state_filename="pumpfun_state.json",
-                 strategy_version="v2-curve-migration",
+                 strategy_version="v3-pullback-reclaim",
                  api_key=None, metered_data_enabled=False,
                  data_fee_sol_per_10k=PUMPPORTAL_DATA_FEE_SOL):
         if not paper_mode:
@@ -95,6 +108,14 @@ class PumpFunPaperBot:
         self.min_unique_traders = int(min_unique_traders)
         self.min_buy_sell_ratio = float(min_buy_sell_ratio)
         self.min_recent_change_pct = float(min_recent_change_pct)
+        self.max_recent_change_pct = float(max_recent_change_pct)
+        self.min_peak_change_pct = float(min_peak_change_pct)
+        self.min_pullback_pct = float(min_pullback_pct)
+        self.max_pullback_pct = float(max_pullback_pct)
+        self.recent_activity_sec = max(1, int(recent_activity_sec))
+        self.min_recent_trades = max(1, int(min_recent_trades))
+        self.min_recent_buy_sell_ratio = float(min_recent_buy_sell_ratio)
+        self.allow_migrated_entries = bool(allow_migrated_entries)
         self.stop_loss_pct = float(stop_loss_pct)
         self.take_profit_pct = float(take_profit_pct)
         self.trailing_stop_pct = float(trailing_stop_pct)
@@ -332,7 +353,7 @@ class PumpFunPaperBot:
             item = {"mint": mint, "symbol": str(event.get("symbol") or event.get("name") or mint[:6]).upper()[:16],
                     "created_ts": now, "first_mcap": mcap, "peak_mcap": mcap,
                     "last_ts": now, "last_mcap": mcap, "buys": 0, "sells": 0,
-                    "trades": 0, "traders": set(), "recent": deque(maxlen=40),
+                    "trades": 0, "traders": set(), "recent": deque(maxlen=200),
                     "phase": self._phase(event), "vsol": 0.0, "vtokens": 0.0,
                     "pool": str(event.get("pool") or "pump")}
             self.candidates[mint] = item
@@ -360,6 +381,17 @@ class PumpFunPaperBot:
         base = next(((ts, mc) for ts, mc, _, _ in recent if ts >= cutoff), None)
         if not base: return 0.0
         return (float(item["last_mcap"]) / max(float(base[1]), 1e-9) - 1) * 100
+
+    def _recent_activity(self, item, now):
+        cutoff = now - self.recent_activity_sec
+        rows = [
+            row
+            for row in (item.get("recent") or [])
+            if float(row[0]) >= cutoff and row[2] in ("buy", "sell")
+        ]
+        buys = sum(row[2] == "buy" for row in rows)
+        sells = sum(row[2] == "sell" for row in rows)
+        return len(rows), float(buys) / max(float(sells), 1.0)
 
     async def _curve_buy(self, item, amount_eur):
         sol_eur = await self._get_sol_eur()
@@ -390,16 +422,41 @@ class PumpFunPaperBot:
         if mint in self.portfolio or self.cooldowns.get(mint, 0) > now or len(self.portfolio) >= self.max_open_positions: return None
         age = now - float(item["created_ts"])
         phase = item.get("phase", PHASE_EARLY)
+        if phase == PHASE_MIGRATED and not self.allow_migrated_entries:
+            return None
         mcap = float(item["last_mcap"])
         change = (mcap / max(float(item["first_mcap"]), 1e-9) - 1) * 100
+        peak_change = (
+            float(item.get("peak_mcap", mcap))
+            / max(float(item["first_mcap"]), 1e-9)
+            - 1
+        ) * 100
+        pullback = (
+            1
+            - mcap / max(float(item.get("peak_mcap", mcap)), 1e-9)
+        ) * 100
         recent_change = self._recent_change(item, now)
+        recent_trades, recent_ratio = self._recent_activity(item, now)
         ratio = float(item["buys"]) / max(float(item["sells"]), 1.0)
         min_trades = self.migrated_min_trades if phase == PHASE_MIGRATED else self.min_trades
         lo, hi = ((self.migrated_min_change_pct, self.migrated_max_change_pct) if phase == PHASE_MIGRATED else (self.min_change_pct, self.max_change_pct))
         max_mcap = self.migrated_max_market_cap_sol if phase == PHASE_MIGRATED else self.max_market_cap_sol
         if not (self.min_age_sec <= age <= self.max_age_sec and self.min_market_cap_sol <= mcap <= max_mcap): return None
-        if not (lo <= change <= hi and recent_change >= self.min_recent_change_pct): return None
+        if not (
+            lo <= change <= hi
+            and peak_change >= self.min_peak_change_pct
+            and self.min_pullback_pct <= pullback <= self.max_pullback_pct
+            and self.min_recent_change_pct
+            <= recent_change
+            <= self.max_recent_change_pct + 1e-9
+        ):
+            return None
         if item["trades"] < min_trades or len(item["traders"]) < self.min_unique_traders or ratio < self.min_buy_sell_ratio: return None
+        if (
+            recent_trades < self.min_recent_trades
+            or recent_ratio < self.min_recent_buy_sell_ratio
+        ):
+            return None
         if not item["recent"] or item["recent"][-1][2] != "buy": return None
         amount = min(self.position_eur, self.capital_remaining)
         if amount < 1: return None
@@ -426,7 +483,10 @@ class PumpFunPaperBot:
             "mark_value": amount * (1 - entry_fee_pct / 100), "phase": phase,
             "trailing_active": False, "trade_id": trade_id}
         self.trade_count += 1; self._save_state()
-        logger.info("PUMP Entry %s phase=%s %.2f€ mcap=%.2fSOL change=%+.1f%%", item["symbol"], phase, amount, mcap, change)
+        logger.info(
+            "PUMP Reclaim %s phase=%s %.2f€ mcap=%.2fSOL change=%+.1f%% peak=%+.1f%% pullback=%.1f%%",
+            item["symbol"], phase, amount, mcap, change, peak_change, pullback,
+        )
         return {
             "mint": mint,
             "symbol": item["symbol"],
@@ -434,6 +494,8 @@ class PumpFunPaperBot:
             "amount": amount,
             "change_pct": change,
             "entry_fee_pct": entry_fee_pct,
+            "peak_change_pct": peak_change,
+            "pullback_pct": pullback,
         }
 
     async def manage(self, item):

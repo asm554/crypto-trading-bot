@@ -52,6 +52,9 @@ class FuturesGridBot:
         snapshot_interval_sec: int = 3600,
         paper_mode: bool = True,
         state_path: Path = STATE_PATH,
+        bot_key: str = BOT_KEY,
+        prefix: str = PREFIX,
+        pair: str = PAIR,
     ):
         if not paper_mode:
             raise NotImplementedError("FuturesGridBot is intentionally paper-only")
@@ -78,6 +81,9 @@ class FuturesGridBot:
         self.scan_interval_sec = max(5, int(scan_interval_sec))
         self.snapshot_interval_sec = max(60, int(snapshot_interval_sec))
         self.state_path = Path(state_path)
+        self.bot_key = str(bot_key)
+        self.prefix = str(prefix)
+        self.pair = str(pair)
         self.orders: list[dict] = []
         self.cycle = 0
         self.realized_funding_eur = 0.0
@@ -97,9 +103,8 @@ class FuturesGridBot:
         self.last_funding_ts = float(raw.get("last_funding_ts", time.time()))
         self.last_snapshot = float(raw.get("last_snapshot", 0.0))
 
-    def _save_state(self) -> None:
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
+    def _state_payload(self) -> dict:
+        return {
             "capital_remaining": self.capital_remaining,
             "orders": self.orders,
             "cycle": self.cycle,
@@ -107,13 +112,16 @@ class FuturesGridBot:
             "last_funding_ts": self.last_funding_ts,
             "last_snapshot": self.last_snapshot,
         }
+
+    def _save_state(self) -> None:
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = self._state_payload()
         tmp = self.state_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(payload, separators=(",", ":")))
         tmp.replace(self.state_path)
 
-    @staticmethod
-    def _quote(ticker: dict) -> tuple[float, float, float] | None:
-        data = ticker.get(PAIR_MAP.get(PAIR, PAIR)) or ticker.get(PAIR)
+    def _quote(self, ticker: dict) -> tuple[float, float, float] | None:
+        data = ticker.get(PAIR_MAP.get(self.pair, self.pair)) or ticker.get(self.pair)
         if not data:
             return None
         try:
@@ -178,7 +186,7 @@ class FuturesGridBot:
         shares = notional / ask
         level = len(self.orders)
         trade_id = await log_paper_trade(
-            f"{PREFIX}{PAIR}_C{self.cycle}_L{level}",
+            f"{self.prefix}{self.pair}_C{self.cycle}_L{level}",
             "long",
             shares,
             ask,
@@ -228,7 +236,7 @@ class FuturesGridBot:
 
     async def step(self, ticker: dict | None = None, now: float | None = None) -> dict:
         now = float(now or time.time())
-        ticker = ticker if ticker is not None else await fetch_ticker_data([PAIR])
+        ticker = ticker if ticker is not None else await fetch_ticker_data([self.pair])
         quote = self._quote(ticker)
         if quote is None:
             return {"action": "no_price"}
@@ -269,13 +277,13 @@ class FuturesGridBot:
         return {"action": "hold", "margin_ratio": ratio, "liquidation_price": self.liquidation_price()}
 
     async def equity(self, ticker: dict | None = None) -> dict:
-        ticker = ticker if ticker is not None else await fetch_ticker_data([PAIR])
+        ticker = ticker if ticker is not None else await fetch_ticker_data([self.pair])
         quote = self._quote(ticker)
         bid = quote[1] if quote else self.average_entry
         unrealized = self.unrealized_pnl(bid) if self.orders else 0.0
         exit_fee = self.total_shares * bid * self.taker_fee_rate if self.orders else 0.0
         equity = self.capital_remaining + self.reserved_margin + unrealized - exit_fee
-        realized = await paper_db_module.get_realized_pnl_by_prefix(PREFIX)
+        realized = await paper_db_module.get_realized_pnl_by_prefix(self.prefix)
         return {
             "equity_eur": equity,
             "cash_eur": self.capital_remaining,
@@ -288,13 +296,13 @@ class FuturesGridBot:
         now = time.time()
         if not force and now - self.last_snapshot < self.snapshot_interval_sec:
             return
-        await log_equity_snapshot(BOT_KEY, **(await self.equity()))
+        await log_equity_snapshot(self.bot_key, **(await self.equity()))
         self.last_snapshot = now
         self._save_state()
 
     async def reconcile_open_trades(self) -> None:
         """Refuse to invent state if DB and state file disagree after restart."""
-        rows = await get_open_trades_by_prefix(PREFIX)
+        rows = await get_open_trades_by_prefix(self.prefix)
         state_ids = {int(o["trade_id"]) for o in self.orders}
         db_ids = {int(r["id"]) for r in rows}
         if state_ids != db_ids:
