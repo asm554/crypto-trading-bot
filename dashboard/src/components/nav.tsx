@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, SlidersHorizontal, Bot, ArrowLeftRight } from "lucide-react";
+import { LayoutDashboard, SlidersHorizontal, Bot, ArrowLeftRight, Film, Landmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
   { href: "/", label: "Übersicht", icon: LayoutDashboard },
   { href: "/trades", label: "Trades", icon: ArrowLeftRight },
+  { href: "/bots/hodl", label: "HODLer", icon: Landmark },
+  { href: "/bots/video", label: "Video-Bots", icon: Film },
   { href: "/settings", label: "Einstellungen", icon: SlidersHorizontal },
 ];
 
@@ -32,7 +34,7 @@ export function Nav() {
         </Link>
         <nav className="flex items-center gap-0.5 sm:gap-1">
           {LINKS.map((link) => {
-            const active = pathname === link.href;
+            const active = pathname === link.href || (link.href !== "/" && pathname.startsWith(`${link.href}/`));
             const Icon = link.icon;
             return (
               <Link
@@ -41,7 +43,7 @@ export function Nav() {
                 aria-current={active ? "page" : undefined}
                 aria-label={link.label}
                 className={cn(
-                  "relative flex h-11 items-center gap-1.5 rounded-md px-2.5 text-sm transition-colors sm:px-3",
+                  "relative flex h-11 items-center gap-1.5 rounded-md px-2 text-sm transition-colors lg:px-3",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                   active
                     ? "text-foreground after:absolute after:inset-x-3 after:-bottom-[13px] after:h-0.5 after:rounded-full after:bg-primary"
@@ -49,7 +51,7 @@ export function Nav() {
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                <span className="hidden sm:inline">{link.label}</span>
+                <span className="hidden lg:inline">{link.label}</span>
               </Link>
             );
           })}

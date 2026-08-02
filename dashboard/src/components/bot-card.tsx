@@ -23,12 +23,14 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
   const optimizationReady = bot.closedTradeCount >= optimizationThreshold;
   const optimizationProgress = Math.min(100, (bot.closedTradeCount / optimizationThreshold) * 100);
   const tradesUntilOptimization = Math.max(0, optimizationThreshold - bot.closedTradeCount);
+  const runtimeStartedAt = bot.runtimeStartedAt ?? bot.startedAt;
+  const runtimeLabel = bot.runtimeStartedAt == null && bot.startedAt != null ? "Daten seit" : "Läuft seit";
 
   return (
     <Card
       className={cn(
-        "relative gap-0 overflow-hidden transition-shadow hover:shadow-[0_0_28px_-10px_var(--glow)]",
-        isLeader && "border-primary/50 shadow-[0_0_30px_-16px_var(--glow)]"
+        "relative gap-0 overflow-hidden bg-card/85 transition-colors hover:border-foreground/20",
+        isLeader && "border-primary/45"
       )}
       style={{ "--glow": botColor } as CSSProperties}
     >
@@ -38,7 +40,7 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
         className="absolute inset-x-0 top-0 h-0.5"
         style={{ background: `linear-gradient(to right, ${botColor}, transparent 85%)` }}
       />
-      <CardHeader className="pb-4">
+      <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -52,7 +54,7 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
                 {bot.name}
               </Badge>
             </div>
-            <p className="mt-1 max-w-[15rem] text-xs text-muted-foreground">{bot.tagline}</p>
+            <p className="mt-1 max-w-[15rem] truncate text-xs text-muted-foreground" title={bot.tagline}>{bot.tagline}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {rank != null && (
@@ -61,13 +63,10 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
                 Rang {rank}
               </Badge>
             )}
-            <Badge variant="secondary" className="font-mono text-xs tabular-nums">
-              {bot.openPositions} offen
-            </Badge>
           </div>
         </div>
 
-        <div className="mt-4 flex items-end justify-between">
+        <div className="mt-3 flex items-end justify-between">
           <div>
             <div className="font-mono text-2xl font-semibold tabular-nums">{eur(bot.equityEur)}</div>
             <div className={cn("font-mono text-sm font-medium tabular-nums", pnlToneClass(bot.totalPnlEur))} title={`gegen ${eur(bot.startingCapitalEur)} Startkapital`}>
@@ -76,8 +75,8 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
           </div>
           <div className="text-right text-xs text-muted-foreground">
             <div>{relTime(bot.lastActivity)}</div>
-            <div className="mt-1 font-mono tabular-nums" title="Seit dem letzten Prozessstart">
-              Läuft seit {runtime(bot.runtimeStartedAt)}
+            <div className="mt-1 font-mono tabular-nums" title={runtimeLabel === "Läuft seit" ? "Seit dem letzten Prozessstart" : "Seit der ersten Messung"}>
+              {runtimeLabel} {runtime(runtimeStartedAt)}
             </div>
           </div>
         </div>
@@ -85,55 +84,80 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
 
       <Separator />
 
-      <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 py-4 sm:grid-cols-4">
+      <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 py-3 sm:grid-cols-4">
         <Stat label="Bargeld" value={eur(bot.cashEur)} />
         <Stat label="Gewinn realisiert" value={signedEur(bot.realizedPnlEur)} tone={pnlToneClass(bot.realizedPnlEur)} />
         <Stat label="noch offen" value={signedEur(bot.unrealizedPnlEur)} tone={pnlToneClass(bot.unrealizedPnlEur)} />
-        <Stat label="Trades gesamt" value={String(bot.tradeCount)} />
+        <Stat label={`${bot.tradeUnitLabel} gesamt`} value={String(bot.tradeCount)} />
+
+        {bot.activePosition ? (
+          <div className="col-span-full mt-1 border-t pt-3">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-xs font-semibold">Aktive Position · {bot.activePosition.pair}</span>
+              <span className="text-xs text-muted-foreground">{bot.openPositions} offen</span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+              <Stat label="Aktueller Kurs" value={bot.activePosition.currentPrice == null ? "—" : price(bot.activePosition.currentPrice)} />
+              <Stat label="Kauf Ø" value={price(bot.activePosition.buyPrice)} />
+              <Stat label="Break-even" value={bot.activePosition.breakEvenPrice == null ? "modellabhängig" : price(bot.activePosition.breakEvenPrice)} />
+              <Stat label="Geplanter Exit" value={bot.activePosition.exitPrice == null ? bot.activePosition.exitPlan : price(bot.activePosition.exitPrice)} />
+            </div>
+            {bot.activePosition.exitPrice != null && (
+              <p className="mt-2 text-xs text-muted-foreground">{bot.activePosition.exitPlan}</p>
+            )}
+          </div>
+        ) : (
+          <div className="col-span-full mt-1 flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
+            <span>Keine offene Position</span>
+            <span>Wartet auf den nächsten Einstieg</span>
+          </div>
+        )}
 
         {isLongTermBenchmark ? (
-          <div className="col-span-full mt-1 border border-sky-500/35 bg-sky-500/10 px-3 py-3 text-sky-800 dark:text-sky-200">
-            <div className="font-heading text-sm font-extrabold">Langfristiger Benchmark</div>
-            <p className="mt-1 text-xs leading-5 opacity-85">
-              Keine Optimierung nach 30 Trades. Bewertet wird die langfristige Entwicklung der festen BTC-, ETH- und SOL-Verteilung.
-            </p>
+          <div className="col-span-full mt-1 flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
+            <span>Langfristiger Benchmark</span>
+            <span className="font-mono">feste BTC · ETH · SOL-Verteilung</span>
           </div>
         ) : (
           <div
             className={cn(
-              "col-span-full mt-1 border px-3 py-3",
+              "col-span-full mt-1 border-t pt-3",
               optimizationReady
-                ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                : "border-amber-500/45 bg-amber-500/12 text-amber-800 dark:text-amber-200"
+                ? "text-emerald-700 dark:text-emerald-300"
+                : "text-amber-800 dark:text-amber-200"
             )}
           >
             <div className="flex items-center justify-between gap-3 text-xs font-semibold">
-              <span>Abgeschlossene Trades</span>
+              <span>Abgeschlossene {bot.tradeUnitLabel}</span>
               <span className="font-mono text-sm font-black tabular-nums">
                 {bot.closedTradeCount}/{optimizationThreshold}
               </span>
             </div>
             <div
               role="progressbar"
-              aria-label={`${bot.closedTradeCount} von ${optimizationThreshold} abgeschlossenen Trades bis zur nächsten Optimierung`}
+              aria-label={`${bot.closedTradeCount} von ${optimizationThreshold} abgeschlossenen ${bot.tradeUnitLabel} bis zur nächsten Optimierung`}
               aria-valuemin={0}
               aria-valuemax={optimizationThreshold}
               aria-valuenow={Math.min(bot.closedTradeCount, optimizationThreshold)}
-              className="mt-2 h-2.5 overflow-hidden bg-current/15"
+              className="mt-2 h-1.5 overflow-hidden rounded-full bg-current/15"
             >
               <div
                 className="h-full bg-current transition-[width]"
                 style={{ width: `${optimizationProgress}%` }}
               />
             </div>
-            <p className="mt-2 font-heading text-sm font-extrabold leading-tight">
+            <p className="mt-1.5 text-xs font-medium leading-tight">
               {optimizationReady
                 ? "Optimierung kann jetzt geprüft werden"
-                : `Noch ${tradesUntilOptimization} ${tradesUntilOptimization === 1 ? "Trade" : "Trades"} bis zur nächsten Optimierung`}
+                : `Noch ${tradesUntilOptimization} ${tradesUntilOptimization === 1 ? bot.tradeUnitSingular : bot.tradeUnitLabel} bis zur nächsten Optimierung`}
             </p>
           </div>
         )}
       </CardContent>
     </Card>
   );
+}
+
+function price(value: number): string {
+  return `${value.toLocaleString("de-DE", { maximumFractionDigits: value < 1 ? 6 : 2 })} €`;
 }

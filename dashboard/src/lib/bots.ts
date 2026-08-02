@@ -7,7 +7,7 @@ import "server-only";
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "scout" | "hodl" | "freqtrade" | "futures";
+export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "candlestick" | "ultimate" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid";
 
 type BotMeta = {
   key: BotKey;
@@ -16,6 +16,15 @@ type BotMeta = {
   prefix: string;
   tagline: string;
   startingCapitalEur: number;
+};
+
+export type PositionOverview = {
+  pair: string;
+  buyPrice: number;
+  currentPrice: number | null;
+  breakEvenPrice: number | null;
+  exitPrice: number | null;
+  exitPlan: string;
 };
 
 export const BOTS: BotMeta[] = [
@@ -92,6 +101,22 @@ export const BOTS: BotMeta[] = [
     startingCapitalEur: 500,
   },
   {
+    key: "candlestick",
+    name: "Candlestick-Scoring",
+    nickname: "Der Kerzenreiter",
+    prefix: "CND_",
+    tagline: "Kombiniert Kerzenmuster, Multi-Timeframe-Trend und Momentum mit realistischen Jupiter-Paper-Quotes.",
+    startingCapitalEur: 500,
+  },
+  {
+    key: "ultimate",
+    name: "Adaptive Multi-Strategie",
+    nickname: "Der Ultimative",
+    prefix: "ULT_",
+    tagline: "Wechselt je nach Marktphase zwischen Trend, Breakout, Pullback und kontrollierter Mean-Reversion.",
+    startingCapitalEur: 500,
+  },
+  {
     key: "scout",
     name: "New-Pool Scout",
     nickname: "Der Spaeher",
@@ -104,6 +129,14 @@ export const BOTS: BotMeta[] = [
   // hier nur der Anzeige-Wert, beim Skalieren dort auch diesen Wert anpassen.
   { key: "freqtrade", name: "Freqtrade", nickname: "Freqtrade", prefix: "FT_", tagline: "Read-only Paper-Trading-Daten aus der separaten Freqtrade-Instanz.", startingCapitalEur: 1000 },
   { key: "futures", name: "Futures", nickname: "Der Hebler", prefix: "FUT_", tagline: "Paper-Trading mit Kraken Futures und begrenztem Hebel.", startingCapitalEur: 500 },
+  {
+    key: "futures_grid",
+    name: "2× Futures Grid",
+    nickname: "Der Treppensteiger Turbo",
+    prefix: "GRIDFUT_",
+    tagline: "Kauft ETH in 0,8-%-Stufen mit 2× Paper-Hebel und fest begrenzter isolierter Margin.",
+    startingCapitalEur: 5000,
+  },
 ];
 
 export type BotSummary = {
@@ -120,12 +153,15 @@ export type BotSummary = {
   pnlPct: number;
   tradeCount: number;
   closedTradeCount: number;
+  tradeUnitLabel: string;
+  tradeUnitSingular: string;
   startedAt: number | null;
   lastActivity: number | null;
   runtimeStartedAt: number | null;
   runtimeStatus: string | null;
   hasData: boolean;
   startingCapitalEur: number;
+  activePosition: PositionOverview | null;
 };
 
 export type TradeRow = {
@@ -140,6 +176,24 @@ export type TradeRow = {
   status: string;
   resolved: boolean;
   pnlEur: number | null;
+  entryPrice: number;
+  exitPrice: number | null;
+  resolvedAt: number | null;
+};
+
+export type PricePoint = { t: number; price: number };
+
+export type TradeDetail = TradeRow & {
+  marketQuestion: string;
+  priceSeries: PricePoint[];
+  priceSource: string;
+  latestPrice: number;
+  currentPrice: number | null;
+  currentPriceSource: string | null;
+  highPrice: number;
+  lowPrice: number;
+  targetPrice: number | null;
+  breakEvenPrice: number | null;
 };
 
 export type EquityPoint = {
@@ -153,10 +207,13 @@ export type EquityPoint = {
   pumpfun: number | null;
   pumpfun_v2: number | null;
   surfer: number | null;
+  candlestick: number | null;
+  ultimate: number | null;
   scout: number | null;
   hodl: number | null;
   freqtrade: number | null;
   futures: number | null;
+  futures_grid: number | null;
 };
 
 type RawTrade = {
@@ -170,6 +227,7 @@ type RawTrade = {
   resolved_at: number | null;
   real_pnl: number | null;
   unrealized_pnl: number | null;
+  exit_price: number | null;
 };
 
 type RawSnapshot = {
@@ -223,10 +281,12 @@ function num(v: unknown, fallback = 0): number {
 export async function getBotSummaries(): Promise<BotSummary[]> {
   const [trades, snapshots] = await Promise.all([fetchAllTrades(), fetchAllSnapshots()]);
 
-  return BOTS.map((bot) => {
+  return Promise.all(BOTS.map(async (bot) => {
     const botTrades = trades.filter((t) => t.market_question.startsWith(bot.prefix));
     const openTrades = botTrades.filter((t) => t.resolved_at == null);
     const doneTrades = botTrades.filter((t) => t.resolved_at != null);
+    const displayTrades = displayTradesForBot(bot, botTrades);
+    const displayDoneTrades = displayTrades.filter((t) => t.resolved_at != null);
 
     const botSnaps = snapshots.filter((s) => s.bot === bot.key);
     const latestSnap = botSnaps[botSnaps.length - 1];
@@ -253,6 +313,7 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
     const runtime = runtimeSnapshots[runtimeSnapshots.length - 1];
 
     const totalPnl = equity - startingCapitalEur;
+    const activePosition = await buildPositionOverview(bot, openTrades);
     return {
       key: bot.key,
       name: bot.name,
@@ -265,16 +326,85 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       unrealizedPnlEur: round2(unrealized),
       totalPnlEur: round2(totalPnl),
       pnlPct: round2((totalPnl / startingCapitalEur) * 100),
-      tradeCount: botTrades.length,
-      closedTradeCount: doneTrades.length,
+      tradeCount: displayTrades.length,
+      closedTradeCount: displayDoneTrades.length,
+      tradeUnitLabel: bot.key === "ultimate" ? "Positionen" : "Trades",
+      tradeUnitSingular: bot.key === "ultimate" ? "Position" : "Trade",
       startedAt: Number.isFinite(startedAt) ? startedAt : null,
       lastActivity,
       runtimeStartedAt: runtime ? num(runtime.ts) : null,
       runtimeStatus: runtime ? "running" : null,
       hasData: botTrades.length > 0 || botSnaps.length > 0,
       startingCapitalEur,
+      activePosition,
     };
-  });
+  }));
+}
+
+function displayTradesForBot(bot: BotMeta, trades: RawTrade[]): RawTrade[] {
+  if (bot.key !== "ultimate") return trades;
+  return trades.filter((trade) => trade.status !== "paper_runner");
+}
+
+async function buildPositionOverview(bot: BotMeta, openTrades: RawTrade[]): Promise<PositionOverview | null> {
+  if (openTrades.length === 0) return null;
+  const primary = openTrades[0];
+  const pair = toTradeRow(primary).pair;
+  const samePair = openTrades.filter((trade) => toTradeRow(trade).pair === pair);
+  const totalShares = samePair.reduce((sum, trade) => sum + num(trade.size), 0);
+  const buyPrice = totalShares > 0
+    ? samePair.reduce((sum, trade) => sum + num(trade.size) * num(trade.price), 0) / totalShares
+    : num(primary.price);
+  const rule = exitRuleFor(bot.key);
+  const currentPrice = await fetchCurrentPriceForBot(bot, primary, pair);
+  return {
+    pair,
+    buyPrice,
+    currentPrice,
+    breakEvenPrice: rule.feeRate == null ? null : buyPrice * (1 + rule.feeRate) / (1 - rule.feeRate),
+    exitPrice: rule.targetPct == null ? null : buyPrice * (1 + rule.targetPct),
+    exitPlan: rule.label,
+  };
+}
+
+function exitRuleFor(key: BotKey): { feeRate: number | null; targetPct: number | null; label: string } {
+  const spotFee = 0.004;
+  switch (key) {
+    case "dca": return { feeRate: spotFee, targetPct: 0.03, label: "+3 % Gewinnziel" };
+    case "meanrev": return { feeRate: spotFee, targetPct: 0.04, label: "+4 % Gewinnziel" };
+    case "futures_grid": return { feeRate: spotFee, targetPct: 0.011, label: "+1,1 % über Durchschnitt" };
+    case "freqtrade": return { feeRate: 0.0025, targetPct: 0.06, label: "+6 % ROI-Regel" };
+    case "memecoin": return { feeRate: null, targetPct: 0.15, label: "+15 % Ziel, dann Trailing" };
+    case "pumpfun": return { feeRate: null, targetPct: 0.30, label: "+30 % Ziel, dann Trailing" };
+    case "pumpfun_v2": return { feeRate: null, targetPct: 0.25, label: "+25 % Ziel, dann Trailing" };
+    case "scout": return { feeRate: null, targetPct: 0.25, label: "+25 % Gewinnziel" };
+    case "momentum": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −2,5 % vom Hoch" };
+    case "daytrade": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −1,5 % vom Hoch" };
+    case "surfer": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −3 % vom Hoch" };
+    case "candlestick": return { feeRate: null, targetPct: null, label: "ATR-Trailing · kein fixer Exit" };
+    case "ultimate": return { feeRate: 0.008, targetPct: null, label: "Netto-2R-Teilgewinn · ATR-Trailing" };
+    case "hodl": return { feeRate: spotFee, targetPct: null, label: "Langfristig halten · kein Exit" };
+    case "futures": return { feeRate: null, targetPct: null, label: "Exit gemäß Futures-Regel" };
+    case "arb": return { feeRate: null, targetPct: null, label: "Atomarer Zyklus · kein offener Exit" };
+  }
+}
+
+async function fetchCurrentPriceForBot(bot: BotMeta, trade: RawTrade, pair: string): Promise<number | null> {
+  if (bot.key === "futures") {
+    const rest = trade.market_question.slice(bot.prefix.length);
+    return fetchFuturesCurrentPrice(rest.split("_").slice(0, 2).join("_"));
+  }
+  if (["memecoin", "pumpfun", "pumpfun_v2", "scout"].includes(bot.key)) return null;
+  if (bot.key === "candlestick") return fetchCandlestickCurrentPrice();
+  return fetchSpotCurrentPrice(pair);
+}
+
+async function fetchCandlestickCurrentPrice(): Promise<number | null> {
+  const [solUsdc, eurUsd] = await Promise.all([
+    fetchSpotCurrentPrice("SOLUSDC"),
+    fetchSpotCurrentPrice("EURUSD"),
+  ]);
+  return solUsdc != null && eurUsd != null && eurUsd > 0 ? solUsdc / eurUsd : null;
 }
 
 function toTradeRow(r: RawTrade): TradeRow {
@@ -283,7 +413,11 @@ function toTradeRow(r: RawTrade): TradeRow {
   // Auflösung, da zwei dynamisch entdeckte Solana-Tokens denselben Namen
   // tragen können) — im Dashboard reicht das Symbol vor dem "@".
   const rest = meta ? r.market_question.slice(meta.prefix.length) : r.market_question;
-  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout" ? rest.split("@")[0] : meta?.key === "hodl" ? rest.split("_")[0] : rest;
+  const pair = meta?.key === "memecoin" || meta?.key === "pumpfun" || meta?.key === "pumpfun_v2" || meta?.key === "scout"
+    ? rest.split("@")[0]
+    : meta?.key === "hodl" || meta?.key === "futures" || meta?.key === "futures_grid"
+      ? rest.split("_")[0]
+      : rest;
   return {
     id: r.id,
     botKey: meta?.key ?? "?",
@@ -296,6 +430,9 @@ function toTradeRow(r: RawTrade): TradeRow {
     status: r.status,
     resolved: r.resolved_at != null,
     pnlEur: r.real_pnl == null ? null : round2(num(r.real_pnl)),
+    entryPrice: num(r.price),
+    exitPrice: r.exit_price == null ? null : num(r.exit_price),
+    resolvedAt: r.resolved_at == null ? null : num(r.resolved_at),
   };
 }
 
@@ -310,6 +447,168 @@ export async function getAllTrades(): Promise<TradeRow[]> {
   return trades.map(toTradeRow);
 }
 
+const KRAKEN_PAIR_MAP: Record<string, string> = {
+  XBTEUR: "XXBTZEUR",
+  ETHEUR: "XETHZEUR",
+  LTCEUR: "XLTCZEUR",
+  XRPEUR: "XXRPZEUR",
+  XLMEUR: "XXLMZEUR",
+};
+
+async function fetchSpotPriceSeries(pair: string, since: number): Promise<PricePoint[]> {
+  const normalizedPair = pair.replaceAll("/", "").replaceAll("-", "");
+  const requested = KRAKEN_PAIR_MAP[normalizedPair] ?? normalizedPair;
+  try {
+    const params = new URLSearchParams({
+      pair: requested,
+      interval: "60",
+      since: String(Math.max(0, Math.floor(since))),
+    });
+    const res = await fetch(`https://api.kraken.com/0/public/OHLC?${params}`, {
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) return [];
+    const payload = await res.json() as {
+      result?: Record<string, unknown>;
+    };
+    const rows = Object.entries(payload.result ?? {}).find(([key, value]) => key !== "last" && Array.isArray(value))?.[1];
+    if (!Array.isArray(rows)) return [];
+    return rows.flatMap((row) => {
+      if (!Array.isArray(row)) return [];
+      const t = num(row[0]);
+      const price = num(row[4]);
+      return t > 0 && price > 0 ? [{ t, price }] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function fetchSpotCurrentPrice(pair: string): Promise<number | null> {
+  const normalizedPair = pair.replaceAll("/", "").replaceAll("-", "");
+  const requested = KRAKEN_PAIR_MAP[normalizedPair] ?? normalizedPair;
+  try {
+    const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${encodeURIComponent(requested)}`, {
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) return null;
+    const payload = await res.json() as { result?: Record<string, { c?: unknown[] }> };
+    const ticker = Object.values(payload.result ?? {})[0];
+    const price = num(ticker?.c?.[0]);
+    return price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchFuturesPriceSeries(symbol: string): Promise<PricePoint[]> {
+  try {
+    const safeSymbol = encodeURIComponent(symbol);
+    const res = await fetch(
+      `https://futures.kraken.com/api/charts/v1/mark/${safeSymbol}/1h?count=720`,
+      { next: { revalidate: 300 } },
+    );
+    if (!res.ok) return [];
+    const payload = await res.json() as { candles?: Array<{ time?: number; close?: number | string }> };
+    return (payload.candles ?? []).flatMap((candle) => {
+      const rawTime = num(candle.time);
+      const t = rawTime > 10_000_000_000 ? rawTime / 1000 : rawTime;
+      const price = num(candle.close);
+      return t > 0 && price > 0 ? [{ t, price }] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function fetchFuturesCurrentPrice(symbol: string): Promise<number | null> {
+  try {
+    const res = await fetch("https://futures.kraken.com/derivatives/api/v3/tickers", {
+      next: { revalidate: 30 },
+    });
+    if (!res.ok) return null;
+    const payload = await res.json() as {
+      tickers?: Array<{ symbol?: string; markPrice?: number | string; last?: number | string }>;
+    };
+    const ticker = (payload.tickers ?? []).find((candidate) => candidate.symbol === symbol);
+    const price = num(ticker?.markPrice ?? ticker?.last);
+    return price > 0 ? price : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
+  const trades = await fetchAllTrades();
+  const raw = trades.find((trade) => trade.id === id);
+  if (!raw) return null;
+  const row = toTradeRow(raw);
+  const meta = BOTS.find((bot) => raw.market_question.startsWith(bot.prefix));
+  const rest = meta ? raw.market_question.slice(meta.prefix.length) : raw.market_question;
+  let priceSeries: PricePoint[] = [];
+  let priceSource = "Entry-/Exit-Daten";
+  let currentPrice: number | null = null;
+  let currentPriceSource: string | null = null;
+
+  if (meta?.key === "futures") {
+    const symbol = rest.split("_").slice(0, 2).join("_");
+    [priceSeries, currentPrice] = await Promise.all([
+      fetchFuturesPriceSeries(symbol),
+      fetchFuturesCurrentPrice(symbol),
+    ]);
+    priceSource = "Kraken Futures · Mark Price · 1h";
+    currentPriceSource = currentPrice == null ? null : "Kraken Futures · Live Mark Price";
+  } else if (!["memecoin", "pumpfun", "pumpfun_v2", "scout"].includes(meta?.key ?? "")) {
+    [priceSeries, currentPrice] = await Promise.all([
+      fetchSpotPriceSeries(row.pair, raw.timestamp - 6 * 3600),
+      fetchSpotCurrentPrice(row.pair),
+    ]);
+    priceSource = "Kraken Spot · OHLC · 1h";
+    currentPriceSource = currentPrice == null ? null : "Kraken Spot · Live Ticker";
+    if (meta?.key === "candlestick") {
+      const eurUsd = await fetchSpotCurrentPrice("EURUSD");
+      if (eurUsd != null && eurUsd > 0) priceSeries = priceSeries.map((point) => ({ ...point, price: point.price / eurUsd }));
+      currentPrice = await fetchCandlestickCurrentPrice();
+      priceSource = "Kraken SOL/USDC · in EUR · OHLC 1h";
+      currentPriceSource = currentPrice == null ? null : "Kraken SOL/USDC · live in EUR";
+    }
+  }
+
+  const endTs = row.resolvedAt ?? Math.floor(Date.now() / 1000);
+  priceSeries = priceSeries.filter((point) => point.t >= raw.timestamp - 6 * 3600 && point.t <= endTs + 6 * 3600);
+  if (priceSeries.length < 2) {
+    priceSeries = [
+      { t: raw.timestamp, price: row.entryPrice },
+      { t: endTs, price: row.exitPrice ?? row.entryPrice },
+    ];
+  } else {
+    priceSeries.push({ t: raw.timestamp, price: row.entryPrice });
+    if (row.resolvedAt && row.exitPrice) {
+      priceSeries.push({ t: row.resolvedAt, price: row.exitPrice });
+    }
+    priceSeries.sort((a, b) => a.t - b.t);
+  }
+  const prices = priceSeries.map((point) => point.price);
+  const latestPrice = row.exitPrice ?? prices[prices.length - 1] ?? row.entryPrice;
+  const targetPct = meta?.key === "freqtrade" ? 0.06 : meta?.key === "futures_grid" ? 0.011 : null;
+  const roundTripFee = meta?.key === "freqtrade" ? 0.0025 : null;
+  return {
+    ...row,
+    marketQuestion: raw.market_question,
+    priceSeries,
+    priceSource,
+    latestPrice,
+    currentPrice,
+    currentPriceSource,
+    highPrice: Math.max(...prices, row.entryPrice, latestPrice),
+    lowPrice: Math.min(...prices, row.entryPrice, latestPrice),
+    targetPrice: targetPct == null ? null : row.entryPrice * (1 + targetPct),
+    breakEvenPrice: roundTripFee == null
+      ? null
+      : row.entryPrice * (1 + roundTripFee) / (1 - roundTripFee),
+  };
+}
+
 export async function getEquitySeries(): Promise<EquityPoint[]> {
   const snapshots = await fetchAllSnapshots();
   const byTime = new Map<number, EquityPoint>();
@@ -317,7 +616,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, scout: null, hodl: null, freqtrade: null, futures: null };
+      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, candlestick: null, ultimate: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       point[r.bot as BotKey] = round2(num(r.equity_eur));
     }
@@ -345,10 +644,26 @@ export function getSettings(): SettingsView {
     { label: "Gebühr pro Kauf/Verkauf", value: "0.40 %", hint: "Wird bei jedem Trade abgezogen (Kraken Taker)." },
     { label: "Gebühr (Maker)", value: "0.16 %", hint: "Falls als Maker gehandelt wird." },
     { label: "Modus", value: "Papierhandel", hint: "Es wird kein echtes Geld eingesetzt." },
-    { label: "Startkapital", value: "500 € je Polybot/Futures; 1.000 € Freqtrade" },
+    { label: "Startkapital", value: "500 € Standard-Battle/Hebler; 5.000 € Treppensteiger; 1.000 € Freqtrade" },
   ];
 
   const strategies: StrategyGroup[] = [
+    {
+      key: "futures_grid",
+      name: "2× Futures Grid",
+      nickname: "Der Treppensteiger Turbo",
+      purpose: "Testet die ETH-Nachkaufstrategie aus dem Video mit Hebel, aber ohne echtes Geld und ohne nachträgliches Margin-Nachschießen.",
+      currentBehavior: "Startet sofort long, legt je 0,8 % Rückgang eine gleich große 2×-Position nach und schließt den Zyklus bei 1,1 % über dem Durchschnitt oder vor der Liquidationszone.",
+      params: [
+        { label: "Startkapital", value: "5.000 €" },
+        { label: "Hebel", value: "2× isoliert" },
+        { label: "Margin je Stufe", value: "75 €", hint: "Entspricht 150 € Positionswert." },
+        { label: "Raster", value: "−0,8 %" },
+        { label: "Max. Nachkäufe", value: "50" },
+        { label: "Gewinnmitnahme", value: "+1,1 %" },
+        { label: "Margin-Wächter", value: "1,25× Maintenance", hint: "Schließt vor der simulierten Liquidation." },
+      ],
+    },
     {
       key: "dca",
       name: "DCA",
@@ -505,6 +820,56 @@ export function getSettings(): SettingsView {
         { label: "Max. Positionsgröße", value: "125 €" },
         { label: "Verlustpause", value: "24 Std. nach 3 Verlusten in Folge" },
         { label: "Kontoverlust-Sperre", value: "−10 %", hint: "Ab dieser Verlustgrenze keine neuen Einstiege, offene Positionen laufen weiter." },
+      ],
+    },
+    {
+      key: "candlestick",
+      name: "Candlestick-Scoring",
+      nickname: "Der Kerzenreiter",
+      purpose: "Handelt SOL/USDC nur bei gemeinsam bestätigtem Trend, Momentum, Volumen und bullischem Kerzenmuster.",
+      currentBehavior: "Bewertet abgeschlossene 1h- und 15m-Kerzen mit bis zu 100 Punkten und nutzt Jupiter ausschließlich für realistische Paper-Fills.",
+      params: [
+        { label: "Handelspaar", value: "SOL/USDC", hint: "PnL und Equity werden für das Battle in EUR umgerechnet." },
+        { label: "Mindestscore", value: "75/100" },
+        { label: "Trendfilter", value: "EMA50 > EMA200 (1h)" },
+        { label: "Momentum", value: "EMA20 > EMA50, RSI 52–70, MACD positiv (15m)" },
+        { label: "Kerzenmuster V1", value: "Bullish Engulfing, Hammer oder bullische Inside-Bar" },
+        { label: "Volumen", value: "mindestens 130 % des 20-Kerzen-Mittels" },
+        { label: "Paper-Fills", value: "Jupiter Quote API", hint: "Keine Wallet, keine Signatur und keine Transaktion." },
+        { label: "Risiko pro Trade", value: "max. 2,50 €" },
+        { label: "Max. Position", value: "125 €" },
+        { label: "Chance/Risiko", value: "mindestens 1,8 : 1 nach Rundreisekosten" },
+        { label: "Exit", value: "2× ATR-Trailing, EMA-/Momentum-/Strukturbruch" },
+        { label: "Max. Haltedauer", value: "48 Std." },
+        { label: "Verlustpause", value: "24 Std. nach 3 Verlusten" },
+        { label: "Kontoverlust-Sperre", value: "−10 %" },
+      ],
+    },
+    {
+      key: "ultimate",
+      name: "Adaptive Multi-Strategie",
+      nickname: "Der Ultimative",
+      purpose: "Wählt abhängig von der Marktphase die passende Long-Strategie für BTC/EUR, ETH/EUR oder SOL/EUR.",
+      currentBehavior: "Handelt nur neue, klar bestätigte Signale. Gebühren, Mindesthaltezeit, Wiederholungssperren und Verlustpausen verhindern die früheren schnellen Minus-Trades.",
+      params: [
+        { label: "Märkte", value: "BTC/EUR, ETH/EUR, SOL/EUR" },
+        { label: "Marktphasen", value: "Aufwärtstrend, seitwärts, abwärts, unklar" },
+        { label: "Mindestscore", value: "85/100" },
+        { label: "Indikatoren", value: "EMA20/50/200, RSI, MACD, ATR und Volumen" },
+        { label: "Setups", value: "Breakout, Pullback oder kontrollierte Mean-Reversion" },
+        { label: "Kerzenmuster", value: "Engulfing, Hammer, Inside-Bar, Morning Star, Three White Soldiers, Tweezer Bottom, Piercing" },
+        { label: "Risiko pro Position", value: "max. 2,50 €" },
+        { label: "Positionsgröße", value: "max. 125 €" },
+        { label: "Nachkauf", value: "maximal 1, nur bei bestätigtem Trend-Pullback" },
+        { label: "Netto-CRV", value: "mindestens 2 : 1 nach allen Gebühren" },
+        { label: "Gewinnsicherung", value: "50 % Teilgewinn bei 2R, Rest per ATR-Trailing" },
+        { label: "Mindesthaltezeit", value: "60 Min.", hint: "Ein normaler Signalausstieg darf nicht mehr direkt nach dem Kauf auslösen. Der Schutzstopp bleibt immer aktiv." },
+        { label: "Wiederholungssperre", value: "gleiches Signal nie doppelt · 12 Std. Pause je Markt" },
+        { label: "Tageslimit", value: "maximal 3 neue Positionen" },
+        { label: "Verlustpause", value: "12 Std. nach 2 Verlustpositionen" },
+        { label: "Weitere Exits", value: "Break-even, bestätigter Regime-/Momentumbruch, 72-Std.-Zeitlimit" },
+        { label: "Kontoverlust-Sperre", value: "−10 %" },
+        { label: "Modus", value: "100 % Paper-Trading" },
       ],
     },
     {
