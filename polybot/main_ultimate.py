@@ -29,14 +29,14 @@ async def main() -> None:
     await init_db()
     await mark_bot_started("ultimate")
     bot = UltimateBot(
-        initial_capital_eur=env_float("ULT_BUDGET", 100),
+        initial_capital_eur=env_float("ULT_BUDGET", 500),
         interval_sec=env_int("ULT_INTERVAL_SEC", 300),
         min_score=env_int("ULT_MIN_SCORE", 85),
         volume_multiplier=env_float("ULT_VOLUME_MULTIPLIER", 1.2),
         atr_stop_multiplier=env_float("ULT_ATR_STOP_MULTIPLIER", 2.0),
         reward_risk_ratio=env_float("ULT_REWARD_RISK", 2.0),
-        max_risk_eur=env_float("ULT_MAX_RISK_EUR", 0.5),
-        max_position_eur=env_float("ULT_MAX_POSITION_EUR", 25),
+        max_risk_eur=env_float("ULT_MAX_RISK_EUR", 2.5),
+        max_position_eur=env_float("ULT_MAX_POSITION_EUR", 125),
         max_hold_sec=env_int("ULT_MAX_HOLD_H", 72) * 3600,
         account_loss_limit_pct=env_float("ULT_ACCOUNT_LOSS_LIMIT_PCT", 10),
         fee_rate=env_float("ULT_TAKER_FEE_RATE", 0.008),

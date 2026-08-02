@@ -29,14 +29,14 @@ async def main() -> None:
     await init_db()
     await mark_bot_started("candlestick")
     bot = CandlestickBot(
-        initial_capital_eur=env_float("CND_BUDGET", 100),
+        initial_capital_eur=env_float("CND_BUDGET", 500),
         interval_sec=env_int("CND_INTERVAL_SEC", 60),
         min_score=env_int("CND_MIN_SCORE", 75),
         volume_multiplier=env_float("CND_VOLUME_MULTIPLIER", 1.3),
         atr_stop_multiplier=env_float("CND_ATR_STOP_MULTIPLIER", 2.0),
         reward_risk_ratio=env_float("CND_REWARD_RISK", 1.8),
-        max_risk_eur=env_float("CND_MAX_RISK_EUR", 0.5),
-        max_position_eur=env_float("CND_MAX_POSITION_EUR", 25),
+        max_risk_eur=env_float("CND_MAX_RISK_EUR", 2.5),
+        max_position_eur=env_float("CND_MAX_POSITION_EUR", 125),
         max_price_impact_pct=env_float("CND_MAX_PRICE_IMPACT_PCT", 0.5),
         slippage_bps=env_int("CND_SLIPPAGE_BPS", 50),
         max_hold_sec=env_int("CND_MAX_HOLD_H", 48) * 3600,
