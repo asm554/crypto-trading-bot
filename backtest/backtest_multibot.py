@@ -78,7 +78,11 @@ HOUR_SEC = 3600
 # absichtlich: der Download läuft noch (Stand: bis 2025-11-26) — ein Paar,
 # dessen Feed mitten im Lauf endet, würde offene Positionen einfrieren.
 FULL_PAIRS = ["SOLEUR", "ETHEUR", "ADAEUR", "XRPEUR"]
-ULT_DEFAULT_PAIRS = ["ETHEUR", "SOLEUR"]
+# ULT handelt live ``PAIRS = ("XBTEUR", "ETHEUR", "SOLEUR")``. In den Bitvavo-
+# Daten heißt das BTC-Paar ``BTCEUR``; die Umbenennung passiert hier im
+# Backtest-Layer (``ultimate_strategy.PAIRS`` wird ohnehin überschrieben),
+# nicht in ``polybot/``.
+ULT_DEFAULT_PAIRS = ["BTCEUR", "ETHEUR", "SOLEUR"]
 
 
 class PairSeries:
@@ -554,7 +558,7 @@ async def run_ult(args) -> dict:
             "max_position_eur": 125.0,
             "max_hold_sec": 72 * 3600,
             "account_loss_limit_pct": args.account_loss_limit_pct if args.account_loss_limit_pct is not None else 10.0,
-            "fee_rate": 0.008,
+            "fee_rate": args.fee_rate if args.fee_rate is not None else 0.008,
             "min_hold_sec": int((args.min_hold_min if args.min_hold_min is not None else 60) * 60),
             "pair_cooldown_sec": 12 * 3600,
             "loss_streak_limit": 2,
@@ -562,12 +566,30 @@ async def run_ult(args) -> dict:
             "max_entries_per_day": 3,
             "max_spread_pct": 0.15,
         }
+        # --ult-set KEY=WERT überschreibt einzelne Gates (Typ vom Default geerbt),
+        # damit gelockerte Varianten ohne Codeänderung laufen.
+        for override in args.ult_set or []:
+            key, _, raw = override.partition("=")
+            key = key.strip()
+            if key not in params:
+                raise SystemExit(f"--ult-set: unbekannter Parameter {key!r}; erlaubt: {sorted(params)}")
+            params[key] = type(params[key])(float(raw))
         bot = ultimate_strategy.UltimateBot(paper_mode=True, state_path=workdir / "ultimate_state.json", **params)
         bot.db_path = Path(paper_db_module.DB_PATH)
+        if not args.state_writes:
+            # ``_save_state`` schreibt bei JEDEM Scan eine JSON-Datei (Temp-Datei
+            # + rename). Über sieben Jahre sind das ~500k Dateisystem-Operationen
+            # und der mit Abstand größte Zeitfresser. Der State liegt hier in
+            # einem Temp-Verzeichnis und wird nach ``__init__`` nie wieder
+            # gelesen — das Stubben ist ergebnisneutral (mit --state-writes
+            # gegengeprüft). Der In-Memory-State bleibt unangetastet.
+            bot._save_state = lambda: None
 
         trades, equity_curve, pending = await drive_ult(bot, sim, clock, timeline)
         final = await bot.equity()
         params["spread_pct"] = args.spread_pct
+        # analyze_edge.py liest den Gebührensatz unter diesem Namen.
+        params["taker_fee_rate"] = params["fee_rate"]
         result = summarize("ULT (Der Ultimative)", args, pairs, params, trades, equity_curve, final, pending, span_days)
         result["setups"] = {}
         for t in trades:
@@ -598,6 +620,11 @@ def main() -> int:
     p.add_argument("--account-loss-limit-pct", type=float, default=None, help="ULT: Kontoverlust-Sperre (Default 10, KEIN Reset!)")
     p.add_argument("--min-hold-min", type=float, default=None, help="ULT: Mindesthaltedauer in Minuten (Default 60)")
     p.add_argument("--min-score", type=int, default=None, help="ULT: Mindest-Score (Default 85 wie main_ultimate.py)")
+    p.add_argument("--fee-rate", type=float, default=None, help="ULT: Taker-Gebühr je Seite (Default 0.008 wie main_ultimate.py)")
+    p.add_argument("--ult-set", action="append", default=None, metavar="KEY=WERT",
+                   help="ULT: einzelnen Konstruktorparameter überschreiben, mehrfach nutzbar")
+    p.add_argument("--state-writes", action="store_true",
+                   help="ULT: State-JSON wirklich schreiben (langsam, nur zur Gegenprobe)")
     p.add_argument("--json-out", default=None)
     p.add_argument("--verbose", action="store_true", help="Strategie-Logzeilen zeigen (sehr laut)")
     args = p.parse_args()
