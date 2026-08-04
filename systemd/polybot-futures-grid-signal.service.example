@@ -11,9 +11,9 @@ ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_futures_g
 Restart=always
 RestartSec=30
 Environment=PYTHONUNBUFFERED=1
-Environment=GRIDSIG_BUDGET=5000
+Environment=GRIDSIG_BUDGET=500
 Environment=GRIDSIG_LEVERAGE=2
-Environment=GRIDSIG_ORDER_MARGIN_EUR=125
+Environment=GRIDSIG_ORDER_MARGIN_EUR=12.5
 Environment=GRIDSIG_TAKE_PROFIT_PCT=1.2
 Environment=GRIDSIG_MAX_SAFETY_ORDERS=7
 Environment=GRIDSIG_MAINTENANCE_MARGIN_PCT=5

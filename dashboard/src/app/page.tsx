@@ -5,6 +5,7 @@ import {
   getBotSummaries,
   getEquitySeries,
   isActiveBotKey,
+  isBotRunning,
   isCurrentRoundTrade,
 } from "@/lib/bots";
 import { BotCard } from "@/components/bot-card";
@@ -33,35 +34,37 @@ export default async function OverviewPage() {
     getAllTrades(),
   ]);
 
-  const activeBots = bots.filter((bot) => isActiveBotKey(bot.key));
-  const standardBots = activeBots
+  const runningBots = bots.filter((bot) => isActiveBotKey(bot.key) && isBotRunning(bot));
+  const standardBots = runningBots
     .filter((bot) => (STANDARD_ACTIVE_BOT_KEYS as readonly string[]).includes(bot.key))
     .sort((a, b) => {
       if (a.hasData !== b.hasData) return a.hasData ? -1 : 1;
       return b.equityEur - a.equityEur;
     });
-  const leveragedBots = activeBots.filter((bot) =>
+  const leveragedBots = runningBots.filter((bot) =>
     (LEVERAGED_ACTIVE_BOT_KEYS as readonly string[]).includes(bot.key),
   );
-  const activeTrades = allTrades.filter(isCurrentRoundTrade);
+  const runningKeys = new Set<string>(runningBots.map((bot) => bot.key));
+  const activeTrades = allTrades.filter(
+    (trade) => isCurrentRoundTrade(trade) && runningKeys.has(trade.botKey),
+  );
   const recentTrades = activeTrades.slice(0, 12);
-  const totalStartingCapital = activeBots.reduce((sum, bot) => sum + bot.startingCapitalEur, 0);
-  const totalEquity = activeBots.reduce((sum, bot) => sum + bot.equityEur, 0);
+  const totalStartingCapital = runningBots.reduce((sum, bot) => sum + bot.startingCapitalEur, 0);
+  const totalEquity = runningBots.reduce((sum, bot) => sum + bot.equityEur, 0);
   const totalPnl = totalEquity - totalStartingCapital;
   const totalPnlPct = totalStartingCapital > 0 ? (totalPnl / totalStartingCapital) * 100 : 0;
-  const openPositions = activeBots.reduce((sum, bot) => sum + bot.openPositions, 0);
+  const openPositions = runningBots.reduce((sum, bot) => sum + bot.openPositions, 0);
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-            Optimierte Paper-Trading-Runde
+            Paper-Trading mit Backtest-Status
           </div>
-          <h1 className="mt-1 text-2xl font-bold sm:text-3xl">Verbesserte Bots. Klare Gruppen.</h1>
+          <h1 className="mt-1 text-2xl font-bold sm:text-3xl">Live-Daten. Ehrlicher Forschungsstand.</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Im Dashboard laufen nur Strategien, deren Einstieg, Ausstieg oder Risikoschutz
-            bereits gezielt überarbeitet wurde.
+            Die laufenden Paper-Bots bleiben sichtbar und werden jetzt zusätzlich nach Bull-, Bear- und Current-Backtests eingeordnet.
           </p>
         </div>
         <AutoRefresh />
@@ -74,13 +77,12 @@ export default async function OverviewPage() {
             <div className="flex items-center gap-2 text-emerald-300">
               <CheckCircle2 aria-hidden className="size-4" />
               <span className="font-mono text-xs font-semibold uppercase tracking-[0.16em]">
-                Aktive Auswahl
+                Forschungsstand
               </span>
             </div>
-            <h2 className="mt-2 font-heading text-xl font-bold">Nur die verbesserte Auswahl läuft</h2>
+            <h2 className="mt-2 font-heading text-xl font-bold">Aktive Bots mit klarer Einordnung</h2>
             <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
-              Turbo, Pump.fun V2 und ungeprüfte Experimente beeinflussen diese Übersicht nicht
-              mehr. Der 2×-Signal-Bot wird wegen seines höheren Startkapitals separat gezeigt.
+              Backtest-Status und Live-Ergebnis werden getrennt gezeigt. Ein guter aktueller Kontostand ersetzt keine historische Validierung.
             </p>
           </div>
 
@@ -88,7 +90,7 @@ export default async function OverviewPage() {
             <Metric
               icon={Activity}
               label="Aktive Strategien"
-              value={`${activeBots.length}`}
+              value={`${runningBots.length}`}
               hint={`${standardBots.length} Standard + ${leveragedBots.length} Signal`}
             />
             <Metric
@@ -117,13 +119,13 @@ export default async function OverviewPage() {
       <section>
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h2 className="font-heading text-lg font-bold">100-€-Battle</h2>
+            <h2 className="font-heading text-lg font-bold">500-€-Paper-Battle</h2>
             <p className="text-sm text-muted-foreground">
-              Acht verbesserte Strategien mit demselben Startkapital, fair nach Netto-Equity sortiert.
+              Aktive Standardstrategien mit 500 EUR Startkapital. Der Backtest-Status ist wichtiger als der momentane Rang.
             </p>
           </div>
           <Badge variant="outline" className="border-emerald-500/30 text-emerald-300">
-            Nur verbesserte Versionen
+            Backtest-Status je Bot
           </Badge>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -135,47 +137,58 @@ export default async function OverviewPage() {
               isLeader={bot.hasData && index === 0}
             />
           ))}
+          {standardBots.length === 0 && (
+            <Card className="sm:col-span-2 xl:col-span-3">
+              <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                Derzeit meldet sich kein Standard-Bot als laufend.
+              </CardContent>
+            </Card>
+          )}
         </div>
       </section>
 
-      <section className="border-t pt-6">
-        <div className="mb-3">
-          <h2 className="font-heading text-lg font-bold">1.000-€-Signal-Klasse</h2>
-          <p className="text-sm text-muted-foreground">
-            Separat geführt, weil Hebel und Startkapital nicht mit dem 100-€-Battle vergleichbar sind.
-          </p>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          {leveragedBots.map((bot) => (
-            <BotCard key={bot.key} bot={bot} />
-          ))}
-        </div>
-      </section>
+      {leveragedBots.length > 0 && (
+        <section className="border-t pt-6">
+          <div className="mb-3">
+            <h2 className="font-heading text-lg font-bold">500-€-Signal-Klasse</h2>
+            <p className="text-sm text-muted-foreground">
+              Gleiches Startkapital, wegen des 2×-Hebels weiterhin separat ausgewiesen.
+            </p>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {leveragedBots.map((bot) => (
+              <BotCard key={bot.key} bot={bot} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section>
         <div className="mb-3">
           <h2 className="font-heading text-lg font-bold">Wert-Entwicklung</h2>
           <p className="text-sm text-muted-foreground">
-            Standard-Battle und Signal-Klasse bleiben wegen des unterschiedlichen Kapitals getrennt.
+            Alle laufenden Bots starten mit 500 €. Die Signal-Klasse bleibt wegen ihres 2×-Hebels getrennt.
           </p>
         </div>
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(22rem,1fr)]">
           <Card className="bg-card/85">
             <CardHeader className="pb-2">
-              <CardTitle className="font-heading text-base font-bold">100-€-Battle</CardTitle>
+              <CardTitle className="font-heading text-base font-bold">500-€-Paper-Battle</CardTitle>
             </CardHeader>
             <CardContent>
-              <EquityChart data={equity} includeKeys={[...STANDARD_ACTIVE_BOT_KEYS]} />
+              <EquityChart data={equity} includeKeys={standardBots.map((bot) => bot.key)} />
             </CardContent>
           </Card>
-          <Card className="bg-card/85">
-            <CardHeader className="pb-2">
-              <CardTitle className="font-heading text-base font-bold">Treppensteiger Signal</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <EquityChart data={equity} includeKeys={[...LEVERAGED_ACTIVE_BOT_KEYS]} />
-            </CardContent>
-          </Card>
+          {leveragedBots.length > 0 && (
+            <Card className="bg-card/85">
+              <CardHeader className="pb-2">
+                <CardTitle className="font-heading text-base font-bold">Treppensteiger Signal</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <EquityChart data={equity} includeKeys={leveragedBots.map((bot) => bot.key)} />
+              </CardContent>
+            </Card>
+          )}
         </div>
       </section>
 

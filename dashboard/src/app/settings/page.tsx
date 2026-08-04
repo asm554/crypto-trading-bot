@@ -23,8 +23,8 @@ export default function SettingsPage() {
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
           Alle Bots handeln im <span className="font-medium text-foreground">Papier-Modus</span> — es
-          wird kein echtes Geld eingesetzt. Das Standard-Battle startet mit 500&nbsp;€; die separat
-          gewerteten Treppensteiger starten mit 5.000&nbsp;€, Freqtrade mit 1.000&nbsp;€.
+          wird kein echtes Geld eingesetzt. Jeder aktuell laufende Bot startet mit
+          500&nbsp;€. Hebelstrategien bleiben wegen ihres höheren Risikos separat ausgewiesen.
         </p>
       </div>
 

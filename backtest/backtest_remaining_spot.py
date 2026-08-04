@@ -27,6 +27,8 @@ from pathlib import Path
 from backtest.backtest_multibot import MarketSim, PairSeries, build_timeline, load_series, print_report, summarize
 from backtest.backtest_surfer import Clock, DEFAULT_SPREAD_PCT, load_candles, parse_date
 from backtest.open_mark import mark_open_trades
+from backtest.dca_regime import execute_regime_gated_round
+from backtest.dca_quality import execute_quality_gated_round
 from polybot import candlestick_strategy, config, dca_strategy, hodl_strategy, meanrev_strategy
 from polybot import paper_db as paper_db_module
 from polybot import surfer_strategy
@@ -34,6 +36,11 @@ from polybot import surfer_strategy
 HOUR = 3600
 DAY = 86400
 DEFAULT_PAIRS = ["BTCEUR", "ETHEUR", "SOLEUR", "ADAEUR", "XRPEUR"]
+DCA_EXIT_RULES = {
+    "stop5": {"stop_loss_pct": 0.05, "take_profit_pct": 0.03, "max_hold_sec": 14 * DAY},
+    "asymmetric": {"stop_loss_pct": 0.04, "take_profit_pct": 0.06, "max_hold_sec": 14 * DAY},
+    "timeboxed": {"stop_loss_pct": 0.04, "take_profit_pct": 0.06, "max_hold_sec": 7 * DAY},
+}
 
 
 class RemainingMarketSim(MarketSim):
@@ -128,7 +135,10 @@ def setup(args, warmup_days: int = 400):
     return start_ts, end_ts, series, timeline, clock, sim
 
 
-async def drive(bot, sim, clock, timeline, *, scan_step=HOUR, dca=False):
+async def drive(
+    bot, sim, clock, timeline, *, scan_step=HOUR, dca=False,
+    dca_regime=False, dca_quality_rule=None,
+):
     curve = []
     for open_ts in timeline:
         if int(open_ts) % scan_step:
@@ -142,7 +152,12 @@ async def drive(bot, sim, clock, timeline, *, scan_step=HOUR, dca=False):
             if clock.now - bot.last_rescan >= bot.rescan_interval:
                 await bot.rescan_top_coins()
             if clock.now - bot.last_buy >= bot.interval_sec:
-                await bot.execute_dca_round()
+                if dca_quality_rule:
+                    await execute_quality_gated_round(bot, sim, dca_quality_rule)
+                elif dca_regime:
+                    await execute_regime_gated_round(bot, sim)
+                else:
+                    await bot.execute_dca_round()
         else:
             await bot.manage_positions()
             await bot.scan_entries()
@@ -208,7 +223,10 @@ async def run_meanrev(args):
 
 
 async def run_dca(args):
-    _, _, _, timeline, clock, sim = setup(args, 35)
+    quality_rule = args.dca_quality_rule
+    exit_rule = args.dca_exit_rule
+    warmup_days = 220 if quality_rule in {"trend", "trend_reversal"} else 35
+    _, _, _, timeline, clock, sim = setup(args, warmup_days)
     work = Path(tempfile.mkdtemp(prefix="dca_bt_"))
     orig = (paper_db_module.DB_PATH, paper_db_module.time, dca_strategy.time, dca_strategy.fetch_ticker_data,
             dca_strategy.rolling_24h_change_pct, dca_strategy.CANDIDATE_PAIRS)
@@ -220,16 +238,40 @@ async def run_dca(args):
         params = dict(initial_capital_eur=args.budget, interval_sec=4*HOUR, top_n=2, paper_mode=True,
                       rescan_interval=24*HOUR, rounds_target=5, min_edge_pct=1.2, negative_streak_limit=2,
                       coin_cooldown_sec=8*HOUR, rolling_window=6, rolling_loss_limit=-5, risk_off_sec=4*HOUR,
+                      risk_off_rearm_on_new_trade=True,
                       take_profit_pct=.03, stop_loss_pct=0, max_hold_sec=14*DAY, min_net_profit_eur=.75,
                       max_open_positions=2, max_pair_exposure_eur=100, min_cash_reserve_eur=50,
                       trend_filter_enabled=True, btc_risk_off_pct=-2, eth_risk_off_pct=-3,
                       recovery_trigger_pct=-5, recovery_reversal_pct=.8, recovery_ticket_eur=25,
                       recovery_max_exposure_factor=1.5)
+        if exit_rule:
+            params.update(DCA_EXIT_RULES[exit_rule])
+            params["recovery_ticket_eur"] = 0.0
         bot = dca_strategy.DCABot(**params); bot._save_state = lambda: None
-        curve = await drive(bot, sim, clock, timeline, dca=True)
+        bot._backtest_regime_counts = {"bull": 0, "neutral": 0, "bear": 0}
+        bot._backtest_quality_counts = {"evaluated": 0, "allowed": 0, "blocked": 0, "empty_rounds": 0}
+        curve = await drive(
+            bot, sim, clock, timeline, dca=True,
+            dca_regime=args.dca_regime_filter, dca_quality_rule=quality_rule,
+        )
         final = await bot.equity(); trades = mark_open_trades(ledger_trades(Path(paper_db_module.DB_PATH), "DCA_"), Path(paper_db_module.DB_PATH), "DCA_", sim, args.spread_pct, "spot")
         params.update(taker_fee_rate=config.CRYPTO_TAKER_FEE_RATE, spread_pct=args.spread_pct)
-        return finish("DCA (Der Stapler)", args, DEFAULT_PAIRS, params, bot, trades, curve, final, timeline)
+        if args.dca_regime_filter:
+            params["btc_regime_filter"] = "daily close/EMA50/EMA200: bull=1.0, neutral=0.5, bear=0.0"
+            params["regime_evaluations"] = dict(bot._backtest_regime_counts)
+        if quality_rule:
+            params["entry_quality_rule"] = quality_rule
+            params["recovery_ticket_eur"] = 0.0
+            params["quality_evaluations"] = dict(bot._backtest_quality_counts)
+        if exit_rule:
+            params["exit_research_rule"] = exit_rule
+        name = (
+            f"DCA (Der Stapler + {quality_rule})" if quality_rule
+            else f"DCA (Der Stapler + {exit_rule})" if exit_rule
+            else "DCA (Der Stapler + BTC-Regime)" if args.dca_regime_filter
+            else "DCA (Der Stapler)"
+        )
+        return finish(name, args, DEFAULT_PAIRS, params, bot, trades, curve, final, timeline)
     finally:
         (paper_db_module.DB_PATH, paper_db_module.time, dca_strategy.time, dca_strategy.fetch_ticker_data,
          dca_strategy.rolling_24h_change_pct, dca_strategy.CANDIDATE_PAIRS) = orig
@@ -275,8 +317,22 @@ def main() -> int:
     parser.add_argument("--start", default="2024-01-01"); parser.add_argument("--end")
     parser.add_argument("--budget", type=float, default=500.0)
     parser.add_argument("--spread-pct", type=float, default=DEFAULT_SPREAD_PCT)
+    parser.add_argument("--dca-regime-filter", action="store_true", help="DCA research: daily BTC EMA50/EMA200 gate")
+    parser.add_argument(
+        "--dca-quality-rule", choices=("trend", "reversal", "trend_reversal"),
+        help="DCA research: fixed pair entry-quality rule; disables recovery averaging",
+    )
+    parser.add_argument(
+        "--dca-exit-rule", choices=tuple(DCA_EXIT_RULES),
+        help="DCA research: fixed hard-stop/target/time-exit rule; disables recovery averaging",
+    )
     parser.add_argument("--json-out"); parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
+    selected_research_rules = sum(bool(v) for v in (
+        args.dca_regime_filter, args.dca_quality_rule, args.dca_exit_rule,
+    ))
+    if selected_research_rules > 1:
+        parser.error("DCA research rule flags are mutually exclusive")
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(message)s")
     result = asyncio.run(RUNNERS[args.bot](args)); print_report(result)
     if args.json_out:

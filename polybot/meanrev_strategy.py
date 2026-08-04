@@ -93,7 +93,7 @@ def stochastic_k(rows: list[tuple], period: int = 14) -> float | None:
 class MeanRevBot:
     def __init__(
         self,
-        initial_capital_eur: float = 100.0,
+        initial_capital_eur: float = 500.0,
         interval_sec: int = 3600,
         entry_drop_pct: float = 8.0,
         rsi_period: int = 14,

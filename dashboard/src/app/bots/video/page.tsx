@@ -10,6 +10,7 @@ import {
   getBotSummaries,
   getEquitySeries,
   isActiveBotKey,
+  isBotRunning,
   isCurrentRoundTrade,
 } from "@/lib/bots";
 import { Badge } from "@/components/ui/badge";
@@ -24,24 +25,33 @@ export default async function VideoBotsPage() {
     getEquitySeries(),
     getAllTrades(),
   ]);
-  const selected = bots.filter((bot) => isActiveBotKey(bot.key));
-  const filtered = trades.filter(isCurrentRoundTrade);
+  const selected = bots.filter((bot) => isActiveBotKey(bot.key) && isBotRunning(bot));
+  const selectedKeys = new Set<string>(selected.map((bot) => bot.key));
+  const filtered = trades.filter(
+    (trade) => isCurrentRoundTrade(trade) && selectedKeys.has(trade.botKey),
+  );
+  const standardKeys = selected
+    .filter((bot) => (STANDARD_ACTIVE_BOT_KEYS as readonly string[]).includes(bot.key))
+    .map((bot) => bot.key);
+  const leveragedKeys = selected
+    .filter((bot) => (LEVERAGED_ACTIVE_BOT_KEYS as readonly string[]).includes(bot.key))
+    .map((bot) => bot.key);
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="font-mono text-xs font-semibold uppercase tracking-[0.16em] text-primary">
-            Geprüft und überarbeitet
+            Live und historisch eingeordnet
           </div>
           <h1 className="mt-1 text-2xl font-bold">Aktive Bots</h1>
           <p className="text-sm text-muted-foreground">
-            Nur bereits verbesserte Strategien nehmen an der aktuellen Runde teil.
+            Die vorhandenen Paper-Bots zeigen jetzt zusätzlich ihren belastbaren Backtest-Status.
           </p>
         </div>
         <Badge variant="outline" className="gap-1.5 border-emerald-500/35 text-emerald-300">
           <CheckCircle2 className="size-3.5" />
-          {selected.length} Strategien aktiv
+          {selected.length} Strategien sichtbar
         </Badge>
       </div>
 
@@ -49,10 +59,9 @@ export default async function VideoBotsPage() {
         <CardContent className="flex items-start gap-3 py-4">
           <ShieldCheck className="mt-0.5 size-5 shrink-0 text-primary" />
           <div>
-            <p className="text-sm font-semibold">Alte Varianten sind aus der aktiven Ansicht entfernt.</p>
+            <p className="text-sm font-semibold">Live-Ergebnis und Forschungsstatus sind getrennte Kennzahlen.</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Turbo, Pump.fun V2 und ungeprüfte Experimente dienen nicht mehr als laufende Kandidaten.
-              Historische Daten bleiben im Hintergrund erhalten.
+              Eine grüne Live-Position beweist noch keine robuste Strategie. Jede Karte erklärt deshalb den Stand aus Bull-, Bear- und Current-Tests.
             </p>
           </div>
         </CardContent>
@@ -65,20 +74,22 @@ export default async function VideoBotsPage() {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(22rem,1fr)]">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">100-€-Battle · Wert-Verlauf</CardTitle>
+            <CardTitle className="text-base">500-€-Paper-Battle · Wert-Verlauf</CardTitle>
           </CardHeader>
           <CardContent>
-            <EquityChart data={equity} includeKeys={[...STANDARD_ACTIVE_BOT_KEYS]} />
+            <EquityChart data={equity} includeKeys={standardKeys} />
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Signal-Klasse · Wert-Verlauf</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <EquityChart data={equity} includeKeys={[...LEVERAGED_ACTIVE_BOT_KEYS]} />
-          </CardContent>
-        </Card>
+        {leveragedKeys.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">500-€-Signal-Klasse · Wert-Verlauf</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <EquityChart data={equity} includeKeys={leveragedKeys} />
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Card>
@@ -86,7 +97,9 @@ export default async function VideoBotsPage() {
         <CardContent>
           <TradesView
             trades={filtered}
-            bots={ACTIVE_BOTS.map((bot) => ({ key: bot.key, nickname: bot.nickname }))}
+            bots={ACTIVE_BOTS
+              .filter((bot) => selectedKeys.has(bot.key))
+              .map((bot) => ({ key: bot.key, nickname: bot.nickname }))}
           />
         </CardContent>
       </Card>

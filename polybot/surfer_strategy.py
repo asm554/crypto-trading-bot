@@ -99,7 +99,7 @@ def closed_ohlc_rows(rows: list[tuple], interval_min: int, now: float | None = N
 class SurferBot:
     def __init__(
         self,
-        initial_capital_eur: float = 100.0,
+        initial_capital_eur: float = 500.0,
         interval_sec: int = 3600,
         trend_lookback_hours: int = 4,
         min_trend_pct: float = 0.0,

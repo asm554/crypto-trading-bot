@@ -11,9 +11,9 @@ ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_futures_g
 Restart=always
 RestartSec=30
 Environment=PYTHONUNBUFFERED=1
-Environment=GRIDFUT_BUDGET=5000
+Environment=GRIDFUT_BUDGET=500
 Environment=GRIDFUT_LEVERAGE=2
-Environment=GRIDFUT_ORDER_MARGIN_EUR=75
+Environment=GRIDFUT_ORDER_MARGIN_EUR=7.5
 Environment=GRIDFUT_GRID_STEP_PCT=0.8
 Environment=GRIDFUT_TAKE_PROFIT_PCT=1.1
 Environment=GRIDFUT_MAX_SAFETY_ORDERS=50

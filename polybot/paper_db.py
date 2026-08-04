@@ -401,8 +401,16 @@ async def mark_bot_started(bot: str, started_at: float | None = None) -> None:
 
 async def mark_bot_stopped(bot: str) -> None:
     aiosqlite = _require_aiosqlite()
+    now = time.time()
     async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
-        await db.execute("UPDATE bot_status SET heartbeat_at=?, status='stopped' WHERE bot=?", (time.time(), bot))
+        await db.execute("UPDATE bot_status SET heartbeat_at=?, status='stopped' WHERE bot=?", (now, bot))
+        # Der Cloud-Sync spiegelt derzeit nur Equity-Snapshots. Das Stop-Ereignis
+        # wird deshalb ebenfalls als Runtime-Snapshot transportiert, damit das
+        # Vercel-Dashboard beendete Prozesse nicht weiter als laufend anzeigt.
+        await db.execute(
+            "INSERT INTO equity_snapshots (bot, ts, equity_eur, cash_eur, open_positions, unrealized_pnl_eur, realized_pnl_eur) VALUES (?, ?, 0, 0, 0, 0, 0)",
+            (f"__runtime_stopped_{bot}", now),
+        )
         await db.commit()
 
 

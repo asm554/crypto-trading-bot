@@ -36,3 +36,25 @@ def test_open_trade_ids_use_literal_prefix(monkeypatch, tmp_path):
 
     expected = asyncio.run(scenario())
     assert paper_db.get_open_trade_ids_by_prefix_sync("PUMP2_") == {expected}
+
+
+def test_runtime_start_and_stop_are_cloud_syncable_snapshots(monkeypatch, tmp_path):
+    db_path = tmp_path / "paper.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def scenario():
+        await paper_db.init_db()
+        await paper_db.mark_bot_started("dca", started_at=1000)
+        await paper_db.mark_bot_stopped("dca")
+
+    asyncio.run(scenario())
+    with sqlite3.connect(db_path) as connection:
+        events = connection.execute(
+            "SELECT bot FROM equity_snapshots WHERE bot LIKE '__runtime%' ORDER BY id"
+        ).fetchall()
+        status = connection.execute(
+            "SELECT status FROM bot_status WHERE bot='dca'"
+        ).fetchone()
+
+    assert events == [("__runtime_dca",), ("__runtime_stopped_dca",)]
+    assert status == ("stopped",)

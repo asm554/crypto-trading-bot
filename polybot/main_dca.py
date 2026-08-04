@@ -10,7 +10,7 @@ Start:
     python -m polybot.main_dca
 
     # Mit eigenen Parametern (Umgebungsvariablen):
-    DCA_BUDGET=100 DCA_INTERVAL_H=4 DCA_TOP_N=3 python -m polybot.main_dca
+    DCA_BUDGET=500 DCA_INTERVAL_H=4 DCA_TOP_N=2 python -m polybot.main_dca
 """
 
 from polybot.cli_env import apply_cli_env
@@ -24,7 +24,7 @@ import signal
 
 from polybot import config
 from polybot.dca_strategy import DCABot
-from polybot.paper_db import init_db, mark_bot_started
+from polybot.paper_db import init_db, mark_bot_started, mark_bot_stopped
 from polybot.alerts import send_telegram
 from polybot.bot_overview import build_overview_message
 
@@ -99,7 +99,7 @@ async def main() -> None:
         top_n=TOP_N,
         paper_mode=PAPER_MODE,
         rescan_interval=int(RESCAN_H * 3600),
-        rounds_target=5,   # 100€ / 5 Runden ≈ 20€ pro DCA-Runde
+        rounds_target=5,   # 500€ / 5 Runden = 100€ pro DCA-Runde
         min_edge_pct=MIN_EDGE_PCT,
         negative_streak_limit=NEG_STREAK_LIMIT,
         coin_cooldown_sec=int(COIN_COOLDOWN_H * 3600),
@@ -158,6 +158,7 @@ async def _shutdown(bot: DCABot, shutdown_event: asyncio.Event) -> None:
         f"Endwert: {p['total_value_eur']}€ | "
         f"PnL: {p['pnl_eur']:+.2f}€ ({p['pnl_pct']:+.1f}%)"
     )
+    await mark_bot_stopped("dca")
     shutdown_event.set()
 
 

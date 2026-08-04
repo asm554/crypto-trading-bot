@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { BacktestStatusBadge, BacktestStatusPanel } from "@/components/backtest-status";
 import { Separator } from "@/components/ui/separator";
 import { Trophy } from "lucide-react";
 import type { BotSummary } from "@/lib/bots";
@@ -56,7 +57,8 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
             </div>
             <p className="mt-1 max-w-[15rem] truncate text-xs text-muted-foreground" title={bot.tagline}>{bot.tagline}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row">
+            <BacktestStatusBadge botKey={bot.key} />
             {rank != null && (
               <Badge variant={isLeader ? "default" : "outline"} className="gap-1 font-mono text-xs tabular-nums">
                 {isLeader && <Trophy aria-hidden className="size-3" />}
@@ -113,6 +115,8 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
           </div>
         )}
 
+        <BacktestStatusPanel botKey={bot.key} />
+
         {isLongTermBenchmark ? (
           <div className="col-span-full mt-1 flex items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
             <span>Langfristiger Benchmark</span>
@@ -135,7 +139,7 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
             </div>
             <div
               role="progressbar"
-              aria-label={`${bot.closedTradeCount} von ${optimizationThreshold} abgeschlossenen ${bot.tradeUnitLabel} bis zur nächsten Optimierung`}
+              aria-label={`${bot.closedTradeCount} von ${optimizationThreshold} abgeschlossenen ${bot.tradeUnitLabel} bis zur ersten Live-Stichprobe`}
               aria-valuemin={0}
               aria-valuemax={optimizationThreshold}
               aria-valuenow={Math.min(bot.closedTradeCount, optimizationThreshold)}
@@ -148,8 +152,8 @@ export function BotCard({ bot, rank, isLeader = false }: { bot: BotSummary; rank
             </div>
             <p className="mt-1.5 text-xs font-medium leading-tight">
               {optimizationReady
-                ? "Optimierung kann jetzt geprüft werden"
-                : `Noch ${tradesUntilOptimization} ${tradesUntilOptimization === 1 ? bot.tradeUnitSingular : bot.tradeUnitLabel} bis zur nächsten Optimierung`}
+                ? "30 Trades in der Live-Stichprobe erreicht"
+                : `Noch ${tradesUntilOptimization} ${tradesUntilOptimization === 1 ? bot.tradeUnitSingular : bot.tradeUnitLabel} bis zur ersten Live-Stichprobe`}
             </p>
           </div>
         )}

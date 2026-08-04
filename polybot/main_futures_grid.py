@@ -32,9 +32,9 @@ async def main() -> None:
     await init_db()
     await mark_bot_started("futures_grid")
     bot = FuturesGridBot(
-        initial_capital_eur=_env_float("GRIDFUT_BUDGET", "5000"),
+        initial_capital_eur=_env_float("GRIDFUT_BUDGET", "500"),
         leverage=_env_float("GRIDFUT_LEVERAGE", "2"),
-        order_margin_eur=_env_float("GRIDFUT_ORDER_MARGIN_EUR", "75"),
+        order_margin_eur=_env_float("GRIDFUT_ORDER_MARGIN_EUR", "7.5"),
         grid_step_pct=_env_float("GRIDFUT_GRID_STEP_PCT", "0.8"),
         take_profit_pct=_env_float("GRIDFUT_TAKE_PROFIT_PCT", "1.1"),
         max_safety_orders=int(os.getenv("GRIDFUT_MAX_SAFETY_ORDERS", "50")),

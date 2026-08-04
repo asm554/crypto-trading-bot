@@ -93,7 +93,7 @@ def test_entry_creates_two_paper_tranches(monkeypatch, tmp_path):
         assert len(bot.portfolio) == 1
         position = next(iter(bot.portfolio.values()))
         invested = sum(leg["cost_basis"] for leg in position["legs"])
-        assert bot.capital_remaining == pytest.approx(100 - invested)
+        assert bot.capital_remaining == pytest.approx(bot.initial_capital_eur - invested)
         assert 1 <= invested <= 12.5
         assert {leg["role"] for leg in position["legs"]} == {"take_profit", "runner"}
         ledger = await paper_db.get_open_trades_by_prefix(strategy.PREFIX)

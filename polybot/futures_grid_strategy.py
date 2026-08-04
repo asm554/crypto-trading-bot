@@ -38,9 +38,9 @@ class FuturesGridBot:
 
     def __init__(
         self,
-        initial_capital_eur: float = 1000.0,
+        initial_capital_eur: float = 500.0,
         leverage: float = 2.0,
-        order_margin_eur: float = 15.0,
+        order_margin_eur: float = 7.5,
         grid_step_pct: float = 0.8,
         take_profit_pct: float = 1.1,
         max_safety_orders: int = 50,

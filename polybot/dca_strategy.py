@@ -229,14 +229,14 @@ class DCABot:
     """
     Dollar-Cost-Averaging Bot für Kraken.
 
-    Startkapital: initial_capital_eur (Standard 100€).
+    Startkapital: initial_capital_eur (Standard 500€).
     Pro Runde wird ein kleiner fixer Betrag investiert bis das Kapital erschöpft ist.
     Danach nur noch Positionen halten + PnL tracken (kein Nachkauf).
     """
 
     def __init__(
         self,
-        initial_capital_eur: float = 100.0,
+        initial_capital_eur: float = 500.0,
         interval_sec: int = 4 * 3600,
         top_n: int = 3,
         paper_mode: bool = True,
@@ -248,6 +248,7 @@ class DCABot:
         rolling_window: int = 9,
         rolling_loss_limit: float = -0.30,
         risk_off_sec: int = 8 * 3600,
+        risk_off_rearm_on_new_trade: bool = False,
         take_profit_pct: float = 0.04,
         stop_loss_pct: float = 0.03,
         max_hold_sec: int = 7 * 24 * 3600,
@@ -282,6 +283,7 @@ class DCABot:
         self.rolling_window = max(3, int(rolling_window))
         self.rolling_loss_limit = float(rolling_loss_limit)
         self.risk_off_sec = max(300, int(risk_off_sec))
+        self.risk_off_rearm_on_new_trade = bool(risk_off_rearm_on_new_trade)
         self.take_profit_pct = max(0.0, float(take_profit_pct))
         self.stop_loss_pct = max(0.0, float(stop_loss_pct))
         self.max_hold_sec = max(0, int(max_hold_sec))
@@ -311,7 +313,9 @@ class DCABot:
         self.trade_count = 0
         self.coin_cooldowns: dict[str, float] = {}
         self.risk_off_until = 0.0
+        self.last_risk_off_trade_id = 0
         self.last_snapshot = 0.0
+        self._rolling_latest_resolved_id = 0
 
         self._load_state_or_rebuild()
 
@@ -339,6 +343,7 @@ class DCABot:
                 self.last_buy = float(raw.get('last_buy', 0.0))
                 self.trade_count = int(raw.get('trade_count', 0))
                 self.risk_off_until = float(raw.get('risk_off_until', 0.0))
+                self.last_risk_off_trade_id = int(raw.get('last_risk_off_trade_id', 0))
                 self.last_snapshot = float(raw.get('last_snapshot', 0.0))
 
                 portfolio = {}
@@ -404,6 +409,8 @@ class DCABot:
         self.total_invested = 0.0
         self.trade_count = 0
         self.last_buy = 0.0
+        self.last_risk_off_trade_id = 0
+        self._rolling_latest_resolved_id = 0
 
         if not self.db_path.exists():
             self.capital_remaining = self.initial_capital_eur
@@ -476,6 +483,7 @@ class DCABot:
                 'trade_count': self.trade_count,
                 'coin_cooldowns': self.coin_cooldowns,
                 'risk_off_until': self.risk_off_until,
+                'last_risk_off_trade_id': self.last_risk_off_trade_id,
                 'last_snapshot': self.last_snapshot,
                 'updated_at': time.time(),
             }
@@ -492,12 +500,14 @@ class DCABot:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             cur = conn.cursor()
             cur.execute(
-                "SELECT real_pnl FROM paper_trades "
+                "SELECT id, real_pnl FROM paper_trades "
                 "WHERE market_question LIKE ? ESCAPE '\\' AND resolved_at IS NOT NULL "
                 "ORDER BY id DESC LIMIT ?",
                 (paper_db_module.prefix_like_pattern("DCA_"), int(window)),
             )
-            vals = [float(r[0]) for r in cur.fetchall() if r[0] is not None]
+            rows = cur.fetchall()
+            self._rolling_latest_resolved_id = max((int(r[0]) for r in rows), default=0)
+            vals = [float(r[1]) for r in rows if r[1] is not None]
             conn.close()
             return sum(vals), len(vals)
         except Exception as e:
@@ -703,11 +713,21 @@ class DCABot:
             return []
 
         rolling_sum, rolling_count = self._rolling_real_pnl_stats(self.rolling_window)
-        if rolling_count >= self.rolling_window and rolling_sum <= self.rolling_loss_limit:
+        latest_resolved_id = self._rolling_latest_resolved_id
+        risk_off_marker_allows_trigger = (
+            not self.risk_off_rearm_on_new_trade
+            or latest_resolved_id > self.last_risk_off_trade_id
+        )
+        if (
+            rolling_count >= self.rolling_window
+            and rolling_sum <= self.rolling_loss_limit
+            and risk_off_marker_allows_trigger
+        ):
             self.risk_off_until = now + self.risk_off_sec
+            self.last_risk_off_trade_id = latest_resolved_id
             logger.warning(
                 f"🧯 Risk-Off ausgelöst: rolling {rolling_count} Trades = {rolling_sum:+.4f}€ "
-                f"(Schwelle {self.rolling_loss_limit:+.4f}€)"
+                f"(Schwelle {self.rolling_loss_limit:+.4f}€, letzter Trade #{latest_resolved_id})"
             )
             self._save_state()
             return []
@@ -1089,15 +1109,16 @@ class DCABot:
             if not reason:
                 continue
 
-            # Harte Schutzregel: TP/SL niemals mit negativem Real-PnL schließen.
-            # time_exit ist der Verlust-Backstop und muss IMMER schließen dürfen.
-            if reason != "time_exit" and real_pnl < 0:
+            # Ein Take-Profit darf wegen Spread/Gebühren nicht versehentlich
+            # einen Nettoverlust realisieren. Stop-Loss und Time-Exit sind
+            # dagegen echte Verlust-Backstops und müssen schließen dürfen.
+            if reason == "take_profit" and real_pnl < 0:
                 logger.info("🛡️ DCA Exit blockiert %s: %s hätte Minus realisiert (%+.4f€)" % (pair, reason, real_pnl))
                 continue
 
             # Mindest-Netto-Gewinn (nach Fees), um Mini-Exits zu vermeiden.
-            # time_exit wird davon ebenfalls nicht aufgehalten (Zwangsschließung).
-            if reason != "time_exit" and real_pnl < self.min_net_profit_eur:
+            # Verlust-Backstops werden davon nicht aufgehalten.
+            if reason == "take_profit" and real_pnl < self.min_net_profit_eur:
                 logger.info("💡 DCA Exit verschoben %s: %s netto %+.4f€ < Mindestgewinn %.4f€" % (pair, reason, real_pnl, self.min_net_profit_eur))
                 continue
 

@@ -175,7 +175,7 @@ def analyse_market(rows: list[tuple], *, volume_multiplier: float = 1.2, breakou
 class UltimateBot:
     def __init__(
         self,
-        initial_capital_eur: float = 100.0,
+        initial_capital_eur: float = 500.0,
         interval_sec: int = 300,
         min_score: int = 80,
         volume_multiplier: float = 1.2,

@@ -57,7 +57,7 @@ def pumpswap_fee_pct(market_cap_sol: float) -> float:
 
 
 class PumpFunPaperBot:
-    def __init__(self, initial_capital_eur=100.0, position_eur=2.0,
+    def __init__(self, initial_capital_eur=500.0, position_eur=2.0,
                  max_open_positions=1, max_candidates=500,
                  min_age_sec=180, max_age_sec=40 * 60,
                  min_market_cap_sol=25.0, max_market_cap_sol=300.0,

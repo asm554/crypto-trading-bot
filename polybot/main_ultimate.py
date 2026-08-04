@@ -5,7 +5,7 @@ import logging
 import logging.handlers
 import os
 
-from polybot.paper_db import init_db, mark_bot_started
+from polybot.paper_db import init_db, mark_bot_started, mark_bot_stopped
 from polybot.ultimate_strategy import UltimateBot
 
 os.makedirs("logs", exist_ok=True)
@@ -49,7 +49,11 @@ async def main() -> None:
         snapshot_interval_sec=env_int("ULT_SNAPSHOT_MIN", 15) * 60,
         paper_mode=os.getenv("ULT_PAPER_MODE", "true").lower() == "true",
     )
-    await bot.run()
+    try:
+        await bot.run()
+    finally:
+        await bot.maybe_snapshot(force=True)
+        await mark_bot_stopped("ultimate")
 
 
 if __name__ == "__main__":

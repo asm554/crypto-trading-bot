@@ -24,7 +24,7 @@ BOT_KEY = "momentum"
 class MomentumBot:
     def __init__(
         self,
-        initial_capital_eur: float = 100.0,
+        initial_capital_eur: float = 500.0,
         interval_sec: int = 3600,
         entry_change_pct: float = 3.0,
         entry_max_change_pct: float = 25.0,

@@ -11,7 +11,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
-from polybot.paper_db import init_db, mark_bot_started
+from polybot.paper_db import init_db, mark_bot_started, mark_bot_stopped
 from polybot.pumpfun_strategy import PumpFunPaperBot
 
 os.makedirs("logs", exist_ok=True)
@@ -80,6 +80,7 @@ async def main():
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     await bot.maybe_snapshot(force=True)
+    await mark_bot_stopped("pumpfun")
 
 
 if __name__ == "__main__":

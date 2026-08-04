@@ -184,10 +184,11 @@ def test_cycle_loss_limit_closes_before_margin_guard(monkeypatch, tmp_path):
     assert bot.cooldown_until == 1100 + 30 * 24 * 3600
 
 
-def test_profitable_defaults_use_larger_but_bounded_stake(tmp_path):
+def test_defaults_use_proportionally_bounded_500_eur_stake(tmp_path):
     bot = SignalFuturesGridBot(state_path=tmp_path / "defaults.json", funding_rate_8h=0)
 
-    assert bot.order_margin_eur == 25
+    assert bot.initial_capital_eur == 500
+    assert bot.order_margin_eur == 12.5
     assert bot.take_profit_pct == 1.2
     assert bot.cooldown_loss_sec == 30 * 24 * 3600
     assert bot.min_trend_spread_atr == 0.75

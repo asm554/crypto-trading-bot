@@ -32,9 +32,9 @@ async def main() -> None:
     await init_db()
     await mark_bot_started(BOT_KEY)
     bot = SignalFuturesGridBot(
-        initial_capital_eur=env_float("GRIDSIG_BUDGET", "5000"),
+        initial_capital_eur=env_float("GRIDSIG_BUDGET", "500"),
         leverage=env_float("GRIDSIG_LEVERAGE", "2"),
-        order_margin_eur=env_float("GRIDSIG_ORDER_MARGIN_EUR", "125"),
+        order_margin_eur=env_float("GRIDSIG_ORDER_MARGIN_EUR", "12.5"),
         take_profit_pct=env_float("GRIDSIG_TAKE_PROFIT_PCT", "1.2"),
         max_safety_orders=int(os.getenv("GRIDSIG_MAX_SAFETY_ORDERS", "7")),
         maintenance_margin_pct=env_float("GRIDSIG_MAINTENANCE_MARGIN_PCT", "5"),

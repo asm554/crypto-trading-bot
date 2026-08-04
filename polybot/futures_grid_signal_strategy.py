@@ -266,9 +266,9 @@ class SignalFuturesGridBot(FuturesGridBot):
         state_path: Path = STATE_PATH,
         **kwargs,
     ):
-        kwargs.setdefault("initial_capital_eur", 1000.0)
+        kwargs.setdefault("initial_capital_eur", 500.0)
         kwargs.setdefault("leverage", 2.0)
-        kwargs.setdefault("order_margin_eur", 25.0)
+        kwargs.setdefault("order_margin_eur", 12.5)
         kwargs.setdefault("grid_step_pct", 0.8)
         kwargs.setdefault("take_profit_pct", 1.2)
         kwargs.setdefault("max_safety_orders", 7)

@@ -207,7 +207,7 @@ def _sanitize_symbol(raw: str) -> str:
 class MemecoinMomentumBot:
     def __init__(
         self,
-        initial_capital_eur: float = 100.0,
+        initial_capital_eur: float = 500.0,
         interval_sec: int = 300,
         entry_change_pct: float = 8.0,
         entry_max_change_pct: float = 35.0,

@@ -68,7 +68,7 @@ def relative_volume(rows: list[tuple], lookback_bars: int = 20) -> float | None:
 class DaytradeBot:
     def __init__(
         self,
-        initial_capital_eur: float = 100.0,
+        initial_capital_eur: float = 500.0,
         interval_sec: int = 300,
         lookback_hours: int = 4,
         entry_change_pct: float = 3.0,

@@ -31,7 +31,7 @@ export const BOTS: BotMeta[] = [
   {
     key: "dca",
     name: "DCA",
-    nickname: "Der Brave",
+    nickname: "Der Stapler",
     prefix: "DCA_",
     tagline: "Kauft regelmäßig kleine Beträge und sitzt Rücksetzer aus.",
     startingCapitalEur: 500,
@@ -135,15 +135,15 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Treppensteiger Turbo",
     prefix: "GRIDFUT_",
     tagline: "Kauft ETH in 0,8-%-Stufen mit 2× Paper-Hebel und fest begrenzter isolierter Margin.",
-    startingCapitalEur: 5000,
+    startingCapitalEur: 500,
   },
   {
     key: "futures_grid_signal",
     name: "2× Signal Grid",
     nickname: "Der Treppensteiger Signal",
     prefix: "GRIDSIG_",
-    tagline: "Handelt nur bestätigte Aufwärtstrends, setzt 125 € je Stufe ein und pausiert nach einem Verlust 30 Tage.",
-    startingCapitalEur: 5000,
+    tagline: "Handelt nur bestätigte Aufwärtstrends, setzt 12,50 € Margin je Stufe ein und pausiert nach einem Verlust 30 Tage.",
+    startingCapitalEur: 500,
   },
 ];
 
@@ -200,6 +200,17 @@ export type BotSummary = {
   startingCapitalEur: number;
   activePosition: PositionOverview | null;
 };
+
+const RUNNING_ACTIVITY_MAX_AGE_SEC = 8 * 3600;
+
+export function isBotRunning(
+  bot: BotSummary,
+  nowSeconds = Date.now() / 1000,
+): boolean {
+  if (bot.runtimeStatus !== "running") return false;
+  const latestSignal = Math.max(bot.runtimeStartedAt ?? 0, bot.lastActivity ?? 0);
+  return latestSignal > 0 && nowSeconds - latestSignal <= RUNNING_ACTIVITY_MAX_AGE_SEC;
+}
 
 export type TradeRow = {
   id: number;
@@ -321,6 +332,18 @@ function num(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? (n as number) : fallback;
 }
 
+function normalizeSnapshotCapital(snapshot: RawSnapshot, targetCapitalEur: number) {
+  const equity = num(snapshot.equity_eur);
+  const cash = num(snapshot.cash_eur);
+  const pnl = num(snapshot.realized_pnl_eur) + num(snapshot.unrealized_pnl_eur);
+  const inferredCapital = equity - pnl;
+  const adjustment = inferredCapital > 0 ? targetCapitalEur - inferredCapital : 0;
+  return {
+    equity: equity + adjustment,
+    cash: cash + adjustment,
+  };
+}
+
 export async function getBotSummaries(): Promise<BotSummary[]> {
   const [trades, snapshots] = await Promise.all([fetchAllTrades(), fetchAllSnapshots()]);
 
@@ -349,18 +372,26 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       : doneTrades.reduce((s, t) => s + num(t.real_pnl), 0);
 
     const startingCapitalEur = bot.startingCapitalEur;
-    const equity = latestSnap ? num(latestSnap.equity_eur) : startingCapitalEur;
-    const cash = latestSnap ? num(latestSnap.cash_eur) : startingCapitalEur;
+    const normalizedSnapshot = latestSnap
+      ? normalizeSnapshotCapital(latestSnap, startingCapitalEur)
+      : null;
+    const equity = normalizedSnapshot?.equity ?? startingCapitalEur;
+    const cash = normalizedSnapshot?.cash ?? startingCapitalEur;
 
     const lastTradeTs = botTrades.reduce((max, t) => Math.max(max, num(t.timestamp)), 0);
     const firstTradeTs = botTrades.reduce((min, t) => Math.min(min, num(t.timestamp)), Infinity);
     const firstSnapshotTs = botSnaps.reduce((min, s) => Math.min(min, num(s.ts)), Infinity);
     const startedAt = Math.min(firstTradeTs, firstSnapshotTs);
     const lastActivity = Math.max(lastTradeTs, latestSnap ? num(latestSnap.ts) : 0) || null;
-    const runtimeSnapshots = snapshots.filter(
-      (s) => s.bot === `__runtime_${bot.key}` && num(s.ts) >= roundStartedAt,
+    const runtimeStartedKey = `__runtime_${bot.key}`;
+    const runtimeStoppedKey = `__runtime_stopped_${bot.key}`;
+    const runtimeEvents = snapshots.filter(
+      (s) =>
+        s.bot === runtimeStartedKey || s.bot === runtimeStoppedKey,
     );
-    const runtime = runtimeSnapshots[runtimeSnapshots.length - 1];
+    const latestRuntimeEvent = runtimeEvents[runtimeEvents.length - 1];
+    const runtimeStarts = runtimeEvents.filter((event) => event.bot === runtimeStartedKey);
+    const runtimeStart = runtimeStarts[runtimeStarts.length - 1];
 
     const totalPnl = equity - startingCapitalEur;
     const activePosition = await buildPositionOverview(bot, openTrades);
@@ -382,8 +413,10 @@ export async function getBotSummaries(): Promise<BotSummary[]> {
       tradeUnitSingular: bot.key === "ultimate" ? "Position" : "Trade",
       startedAt: Number.isFinite(startedAt) ? startedAt : null,
       lastActivity,
-      runtimeStartedAt: runtime ? num(runtime.ts) : null,
-      runtimeStatus: runtime ? "running" : null,
+      runtimeStartedAt: runtimeStart ? num(runtimeStart.ts) : null,
+      runtimeStatus: latestRuntimeEvent
+        ? latestRuntimeEvent.bot === runtimeStartedKey ? "running" : "stopped"
+        : latestSnap ? "running" : null,
       hasData: botTrades.length > 0 || botSnaps.length > 0,
       startingCapitalEur,
       activePosition,
@@ -681,7 +714,10 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
       byTime.get(bucket) ??
       { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, candlestick: null, ultimate: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null, futures_grid_signal: null };
     if (BOTS.some((b) => b.key === r.bot)) {
-      point[r.bot as BotKey] = round2(num(r.equity_eur));
+      const bot = BOTS.find((candidate) => candidate.key === r.bot);
+      point[r.bot as BotKey] = round2(
+        normalizeSnapshotCapital(r, bot?.startingCapitalEur ?? 500).equity,
+      );
     }
     byTime.set(bucket, point);
   }
@@ -708,7 +744,7 @@ export function getSettings(): SettingsView {
     { label: "Treppensteiger-Gebühr je Seite", value: "0,05 %", hint: "Für den separaten 2×-Signal-Bot." },
     { label: "Pump.fun Ausführung", value: "Curve + simulierte Gebühr", hint: "Kein echter Wallet-Handel." },
     { label: "Modus", value: "Papierhandel", hint: "Es wird kein echtes Geld eingesetzt." },
-    { label: "Startkapital", value: "500 € Standard-Battle/Hebler; 5.000 € Treppensteiger; 1.000 € Freqtrade" },
+    { label: "Startkapital", value: "500 € je laufendem Bot; historische, nicht laufende Instanzen bleiben separat" },
   ];
 
   const strategies: StrategyGroup[] = [
@@ -719,9 +755,9 @@ export function getSettings(): SettingsView {
       purpose: "Testet die ETH-Nachkaufstrategie aus dem Video mit Hebel, aber ohne echtes Geld und ohne nachträgliches Margin-Nachschießen.",
       currentBehavior: "Startet sofort long, legt je 0,8 % Rückgang eine gleich große 2×-Position nach und schließt den Zyklus bei 1,1 % über dem Durchschnitt oder vor der Liquidationszone.",
       params: [
-        { label: "Startkapital", value: "5.000 €" },
+        { label: "Startkapital", value: "500 €" },
         { label: "Hebel", value: "2× isoliert" },
-        { label: "Margin je Stufe", value: "75 €", hint: "Entspricht 150 € Positionswert." },
+        { label: "Margin je Stufe", value: "7,50 €", hint: "Entspricht 15 € Positionswert." },
         { label: "Raster", value: "−0,8 %" },
         { label: "Max. Nachkäufe", value: "50" },
         { label: "Gewinnmitnahme", value: "+1,1 %" },
@@ -735,9 +771,9 @@ export function getSettings(): SettingsView {
       purpose: "Prüft, ob Rücksetzer-, Trend- und Erholungssignale den ursprünglichen Treppensteiger stabiler machen.",
       currentBehavior: "Startet nur in einem klaren Aufwärtstrend mit positiver 12-Stunden-Bewegung. Neue Preisstufen werden zunächst vorgemerkt und erst nach sichtbarer Erholung gekauft. Nach einem Verlust bleibt der Bot 30 Tage an der Seitenlinie.",
       params: [
-        { label: "Startkapital", value: "5.000 €" },
+        { label: "Startkapital", value: "500 €" },
         { label: "Hebel", value: "2× isoliert" },
-        { label: "Margin je Stufe", value: "125 €", hint: "Entspricht 250 € Positionswert." },
+        { label: "Margin je Stufe", value: "12,50 €", hint: "Entspricht 25 € Positionswert." },
         { label: "Stufenabstand", value: "dynamisch 0,8–1,6 %" },
         { label: "Max. Stufen gesamt", value: "8" },
         { label: "Pause nach Gewinn", value: "12 Std." },
