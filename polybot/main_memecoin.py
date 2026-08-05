@@ -7,7 +7,7 @@ import signal
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
-from polybot.paper_db import init_db, mark_bot_started
+from polybot.paper_db import init_db, mark_bot_started, mark_bot_stopped
 from polybot.memecoin_strategy import MemecoinMomentumBot
 
 os.makedirs("logs", exist_ok=True)
@@ -18,7 +18,7 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.addHandler(logging.StreamHandler())
 
-BUDGET = float(os.getenv("CHAIN_BUDGET", "100"))
+BUDGET = float(os.getenv("CHAIN_BUDGET", "500"))
 INTERVAL_SEC = int(os.getenv("CHAIN_INTERVAL_SEC", "300"))
 ENTRY_CHANGE_PCT = float(os.getenv("CHAIN_ENTRY_CHANGE_PCT", "8.0"))
 ENTRY_MAX_CHANGE_PCT = float(os.getenv("CHAIN_ENTRY_MAX_CHANGE_PCT", "25.0"))
@@ -34,7 +34,7 @@ DYNAMIC_ENABLED = os.getenv("CHAIN_DYNAMIC_ENABLED", "true").lower() == "true"
 MAX_DYNAMIC_TOKENS = int(os.getenv("CHAIN_MAX_DYNAMIC_TOKENS", "15"))
 MAX_DYNAMIC_POSITIONS = int(os.getenv("CHAIN_MAX_DYNAMIC_POSITIONS", "1"))
 MIN_PAIR_AGE_H = float(os.getenv("CHAIN_MIN_PAIR_AGE_H", "48"))
-POSITION_EUR = float(os.getenv("CHAIN_POSITION_EUR", "8"))
+POSITION_EUR = float(os.getenv("CHAIN_POSITION_EUR", "40"))
 MAX_OPEN_POSITIONS = int(os.getenv("CHAIN_MAX_OPEN_POSITIONS", "3"))
 TAKE_PROFIT_PCT = float(os.getenv("CHAIN_TAKE_PROFIT_PCT", "15"))
 TRAILING_STOP_PCT = float(os.getenv("CHAIN_TRAILING_STOP_PCT", "12"))
@@ -89,6 +89,7 @@ async def main():
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     await bot.maybe_snapshot(force=True)
+    await mark_bot_stopped("memecoin")
 
 if __name__ == "__main__":
     asyncio.run(main())

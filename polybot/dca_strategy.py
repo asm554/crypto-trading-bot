@@ -22,7 +22,7 @@ KRAKEN_PUBLIC = "https://api.kraken.com/0/public"
 # EUR-Paare die Kraken anbietet (erweiterbar)
 CANDIDATE_PAIRS = [
     "XBTEUR", "ETHEUR", "SOLEUR", "XRPEUR", "ADAEUR",
-    "DOTEUR", "AVAXEUR", "LINKEUR", "MATICEUR", "LTCEUR",
+    "DOTEUR", "AVAXEUR", "LINKEUR", "POLEUR", "LTCEUR",
     "UNIEUR", "ATOMEUR", "NEAREUR", "APTEUR", "SUIEUR",
     "DOGEEUR", "SHIBEUR", "TRXEUR", "XLMEUR", "FILEUR",
     # zusätzliche volatile/meme-lastige Kandidaten (falls auf Kraken verfügbar)
@@ -36,6 +36,7 @@ PAIR_MAP = {
     "LTCEUR": "XLTCZEUR",
     "XRPEUR": "XXRPZEUR",
     "XLMEUR": "XXLMZEUR",
+    "DOGEEUR": "XDGEUR",
 }
 
 
@@ -117,7 +118,9 @@ async def _fetch_ohlc_closes(pair: str, interval_min: int = 60) -> list[float]:
                     closes.append(float(r[4]))
                 except (ValueError, IndexError, TypeError):
                     continue
-            return closes
+            # Kraken hängt die laufende, noch nicht abgeschlossene Kerze an.
+            # Rollierende Signale werden nur aus finalen Bars berechnet.
+            return closes[:-1] if len(closes) > 1 else []
     return []
 
 
@@ -226,14 +229,14 @@ class DCABot:
     """
     Dollar-Cost-Averaging Bot für Kraken.
 
-    Startkapital: initial_capital_eur (Standard 100€).
+    Startkapital: initial_capital_eur (Standard 500€).
     Pro Runde wird ein kleiner fixer Betrag investiert bis das Kapital erschöpft ist.
     Danach nur noch Positionen halten + PnL tracken (kein Nachkauf).
     """
 
     def __init__(
         self,
-        initial_capital_eur: float = 100.0,
+        initial_capital_eur: float = 500.0,
         interval_sec: int = 4 * 3600,
         top_n: int = 3,
         paper_mode: bool = True,
@@ -245,6 +248,7 @@ class DCABot:
         rolling_window: int = 9,
         rolling_loss_limit: float = -0.30,
         risk_off_sec: int = 8 * 3600,
+        risk_off_rearm_on_new_trade: bool = False,
         take_profit_pct: float = 0.04,
         stop_loss_pct: float = 0.03,
         max_hold_sec: int = 7 * 24 * 3600,
@@ -279,6 +283,7 @@ class DCABot:
         self.rolling_window = max(3, int(rolling_window))
         self.rolling_loss_limit = float(rolling_loss_limit)
         self.risk_off_sec = max(300, int(risk_off_sec))
+        self.risk_off_rearm_on_new_trade = bool(risk_off_rearm_on_new_trade)
         self.take_profit_pct = max(0.0, float(take_profit_pct))
         self.stop_loss_pct = max(0.0, float(stop_loss_pct))
         self.max_hold_sec = max(0, int(max_hold_sec))
@@ -308,7 +313,9 @@ class DCABot:
         self.trade_count = 0
         self.coin_cooldowns: dict[str, float] = {}
         self.risk_off_until = 0.0
+        self.last_risk_off_trade_id = 0
         self.last_snapshot = 0.0
+        self._rolling_latest_resolved_id = 0
 
         self._load_state_or_rebuild()
 
@@ -336,6 +343,7 @@ class DCABot:
                 self.last_buy = float(raw.get('last_buy', 0.0))
                 self.trade_count = int(raw.get('trade_count', 0))
                 self.risk_off_until = float(raw.get('risk_off_until', 0.0))
+                self.last_risk_off_trade_id = int(raw.get('last_risk_off_trade_id', 0))
                 self.last_snapshot = float(raw.get('last_snapshot', 0.0))
 
                 portfolio = {}
@@ -356,6 +364,8 @@ class DCABot:
 
                 if self.total_invested <= 0 and self.portfolio:
                     self.total_invested = sum(v['cost_basis'] for v in self.portfolio.values())
+                if not self._state_matches_open_ledger():
+                    raise ValueError("State und offenes DCA-Ledger weichen ab")
 
                 loaded = True
                 logger.info(f'♻️ DCA state geladen: investiert={self.total_invested:.2f}€, rest={self.capital_remaining:.2f}€, trades={self.trade_count}')
@@ -366,12 +376,41 @@ class DCABot:
             self._rebuild_state_from_db()
             self._save_state()
 
+    def _state_matches_open_ledger(self) -> bool:
+        """Vergleicht aggregierte offene DCA-Positionen mit SQLite."""
+        if not self.db_path.exists():
+            return not self.portfolio
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        try:
+            rows = conn.execute(
+                "SELECT market_question, size, price FROM paper_trades "
+                "WHERE market_question LIKE ? ESCAPE '\\' AND resolved_at IS NULL",
+                (paper_db_module.prefix_like_pattern("DCA_"),),
+            ).fetchall()
+        finally:
+            conn.close()
+        expected: dict[str, dict[str, float]] = {}
+        for market, size, price in rows:
+            pair = str(market).removeprefix("DCA_")
+            item = expected.setdefault(pair, {"shares": 0.0, "cost_basis": 0.0})
+            item["shares"] += float(size or 0.0)
+            item["cost_basis"] += float(size or 0.0) * float(price or 0.0)
+        if set(expected) != set(self.portfolio):
+            return False
+        return all(
+            abs(expected[pair]["shares"] - float(self.portfolio[pair].get("shares", 0.0))) <= 1e-9
+            and abs(expected[pair]["cost_basis"] - float(self.portfolio[pair].get("cost_basis", 0.0))) <= 1e-6
+            for pair in expected
+        )
+
     def _rebuild_state_from_db(self) -> None:
         """Rekonstruiert Portfolio, Cash und Trade-Zähler aus DCA-DB-Trades."""
         self.portfolio = {}
         self.total_invested = 0.0
         self.trade_count = 0
         self.last_buy = 0.0
+        self.last_risk_off_trade_id = 0
+        self._rolling_latest_resolved_id = 0
 
         if not self.db_path.exists():
             self.capital_remaining = self.initial_capital_eur
@@ -383,7 +422,8 @@ class DCABot:
             cur = conn.cursor()
             cur.execute(
                 "SELECT timestamp, market_question, size, price, resolved_at, real_pnl FROM paper_trades "
-                "WHERE market_question LIKE 'DCA_%' ORDER BY id ASC"
+                "WHERE market_question LIKE ? ESCAPE '\\' ORDER BY id ASC",
+                (paper_db_module.prefix_like_pattern("DCA_"),),
             )
             rows = cur.fetchall()
             conn.close()
@@ -443,6 +483,7 @@ class DCABot:
                 'trade_count': self.trade_count,
                 'coin_cooldowns': self.coin_cooldowns,
                 'risk_off_until': self.risk_off_until,
+                'last_risk_off_trade_id': self.last_risk_off_trade_id,
                 'last_snapshot': self.last_snapshot,
                 'updated_at': time.time(),
             }
@@ -459,12 +500,14 @@ class DCABot:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             cur = conn.cursor()
             cur.execute(
-                "SELECT real_pnl FROM paper_trades "
-                "WHERE market_question LIKE 'DCA_%' AND resolved_at IS NOT NULL "
+                "SELECT id, real_pnl FROM paper_trades "
+                "WHERE market_question LIKE ? ESCAPE '\\' AND resolved_at IS NOT NULL "
                 "ORDER BY id DESC LIMIT ?",
-                (int(window),),
+                (paper_db_module.prefix_like_pattern("DCA_"), int(window)),
             )
-            vals = [float(r[0]) for r in cur.fetchall() if r[0] is not None]
+            rows = cur.fetchall()
+            self._rolling_latest_resolved_id = max((int(r[0]) for r in rows), default=0)
+            vals = [float(r[1]) for r in rows if r[1] is not None]
             conn.close()
             return sum(vals), len(vals)
         except Exception as e:
@@ -529,7 +572,7 @@ class DCABot:
         internal = PAIR_MAP.get(pair, pair)
         data = ticker.get(internal) or ticker.get(pair)
         if not data:
-            return fallback
+            return None
         try:
             open_price = float(data["o"])
             last_price = float(data["c"][0])
@@ -568,8 +611,12 @@ class DCABot:
 
         btc = self._ticker_snapshot("XBTEUR", ticker) or {}
         eth = self._ticker_snapshot("ETHEUR", ticker) or {}
-        btc_change = btc.get("change_pct")
-        eth_change = eth.get("change_pct")
+        btc_change = await rolling_24h_change_pct("XBTEUR")
+        eth_change = await rolling_24h_change_pct("ETHEUR")
+        if btc_change is None:
+            btc_change = btc.get("change_pct")
+        if eth_change is None:
+            eth_change = eth.get("change_pct")
         if btc_change is not None and float(btc_change) <= self.btc_risk_off_pct:
             reasons.append(f"BTC 24h {float(btc_change):+.2f}% <= {self.btc_risk_off_pct:+.2f}%")
         if eth_change is not None and float(eth_change) <= self.eth_risk_off_pct:
@@ -604,15 +651,25 @@ class DCABot:
         pnl_pct = self._pair_unrealized_pct(pair, current_price)
         return pnl_pct <= self.recovery_trigger_pct and change_pct >= self.recovery_reversal_pct
 
-    def _record_dca_buy(self, trades: list[dict], coin_info: dict, pair: str, price: float, amount_eur: float, reason: str) -> None:
-        """Bucht einen Paper-DCA-Kauf in Runtime-State; DB-Logging macht run().
+    async def _record_dca_buy(self, trades: list[dict], coin_info: dict, pair: str, price: float, amount_eur: float, reason: str) -> None:
+        """Schreibt zuerst ins Ledger und bucht danach den Runtime-State.
 
         ``price`` ist der Last-Preis aus der Entscheidungslogik – gefüllt wird zum
         Ask. Der Fill-Preis wandert auch in die DB, damit ``_rebuild_state_from_db``
-        über ``size * price`` wieder exakt auf ``amount_eur`` kommt.
+        über ``size * price`` wieder exakt auf ``amount_eur`` kommt. Ein DB-Fehler
+        kann so keine Phantomposition im JSON-State erzeugen.
         """
         fill_price = float(coin_info.get("ask") or price)
         coins_bought = amount_eur / fill_price
+        trade_id = await paper_db_module.log_paper_trade(
+            market=f"DCA_{pair}",
+            side="buy",
+            size=coins_bought,
+            price=fill_price,
+            edge=abs(float(coin_info.get("change_pct", 0) or 0)) / 100,
+            status="paper",
+            db_path=self.db_path,
+        )
         logger.info(
             f"📝 PAPER DCA: KAUF {pair} | {amount_eur:.2f}€ → "
             f"{coins_bought:.6f} Coins @ {fill_price:.4f}€ (Last {price:.4f}€) [{reason}]"
@@ -632,6 +689,7 @@ class DCABot:
             "coins_bought": coins_bought,
             "change_pct": coin_info.get("change_pct", 0),
             "reason": reason,
+            "trade_id": trade_id,
             "timestamp": time.time(),
         })
 
@@ -655,11 +713,21 @@ class DCABot:
             return []
 
         rolling_sum, rolling_count = self._rolling_real_pnl_stats(self.rolling_window)
-        if rolling_count >= self.rolling_window and rolling_sum <= self.rolling_loss_limit:
+        latest_resolved_id = self._rolling_latest_resolved_id
+        risk_off_marker_allows_trigger = (
+            not self.risk_off_rearm_on_new_trade
+            or latest_resolved_id > self.last_risk_off_trade_id
+        )
+        if (
+            rolling_count >= self.rolling_window
+            and rolling_sum <= self.rolling_loss_limit
+            and risk_off_marker_allows_trigger
+        ):
             self.risk_off_until = now + self.risk_off_sec
+            self.last_risk_off_trade_id = latest_resolved_id
             logger.warning(
                 f"🧯 Risk-Off ausgelöst: rolling {rolling_count} Trades = {rolling_sum:+.4f}€ "
-                f"(Schwelle {self.rolling_loss_limit:+.4f}€)"
+                f"(Schwelle {self.rolling_loss_limit:+.4f}€, letzter Trade #{latest_resolved_id})"
             )
             self._save_state()
             return []
@@ -727,7 +795,7 @@ class DCABot:
                 f"♻️ Recovery-DCA {pair}: PnL {self._pair_unrealized_pct(pair, price):+.1f}%, "
                 f"24h {change_pct:+.1f}%, Ticket {amount_eur:.2f}€"
             )
-            self._record_dca_buy(trades, coin_info, pair, price, amount_eur, "recovery")
+            await self._record_dca_buy(trades, coin_info, pair, price, amount_eur, "recovery")
             round_remaining = round(max(0.0, round_remaining - amount_eur), 2)
             if round_remaining < 0.01 or self._risk_cash_available() < 0.50:
                 break
@@ -812,7 +880,7 @@ class DCABot:
                 amount_eur = max(0.0, min(amount_eur, self.capital_remaining, self._risk_cash_available(), remaining_pair_capacity))
                 if amount_eur < 0.01:
                     continue
-                self._record_dca_buy(trades, coin_info, pair, price, amount_eur, "entry")
+                await self._record_dca_buy(trades, coin_info, pair, price, amount_eur, "entry")
 
         self.last_buy = time.time()
         self._save_state()
@@ -903,7 +971,8 @@ class DCABot:
             async with aiosqlite.connect(db_path, timeout=30.0) as db:
                 async with db.execute(
                     "SELECT id, market_question, size, price FROM paper_trades "
-                    "WHERE market_question LIKE 'DCA_%' AND resolved_at IS NULL"
+                    "WHERE market_question LIKE ? ESCAPE '\\' AND resolved_at IS NULL",
+                    (paper_db_module.prefix_like_pattern("DCA_"),),
                 ) as cursor:
                     rows = [dict(zip([c[0] for c in cursor.description], row))
                             async for row in cursor]
@@ -1040,19 +1109,22 @@ class DCABot:
             if not reason:
                 continue
 
-            # Harte Schutzregel: TP/SL niemals mit negativem Real-PnL schließen.
-            # time_exit ist der Verlust-Backstop und muss IMMER schließen dürfen.
-            if reason != "time_exit" and real_pnl < 0:
+            # Ein Take-Profit darf wegen Spread/Gebühren nicht versehentlich
+            # einen Nettoverlust realisieren. Stop-Loss und Time-Exit sind
+            # dagegen echte Verlust-Backstops und müssen schließen dürfen.
+            if reason == "take_profit" and real_pnl < 0:
                 logger.info("🛡️ DCA Exit blockiert %s: %s hätte Minus realisiert (%+.4f€)" % (pair, reason, real_pnl))
                 continue
 
             # Mindest-Netto-Gewinn (nach Fees), um Mini-Exits zu vermeiden.
-            # time_exit wird davon ebenfalls nicht aufgehalten (Zwangsschließung).
-            if reason != "time_exit" and real_pnl < self.min_net_profit_eur:
+            # Verlust-Backstops werden davon nicht aufgehalten.
+            if reason == "take_profit" and real_pnl < self.min_net_profit_eur:
                 logger.info("💡 DCA Exit verschoben %s: %s netto %+.4f€ < Mindestgewinn %.4f€" % (pair, reason, real_pnl, self.min_net_profit_eur))
                 continue
 
-            await resolve_trade(int(row["id"]), exit_price, round(real_pnl, 6))
+            if not await resolve_trade(int(row["id"]), exit_price, round(real_pnl, 6)):
+                await self.restore_state_from_db()
+                return resolved
 
             pos = self.portfolio.get(pair)
             if pos:
@@ -1130,21 +1202,11 @@ class DCABot:
                     f"PnL: {portfolio['pnl_eur']:+.2f}€ / {portfolio['pnl_pct']:+.1f}%)"
                 )
 
-                # In paper_db loggen + PnL aller offenen Trades aktualisieren
+                # Trades sind vor der State-Mutation bereits atomar im Ledger.
                 try:
-                    from polybot.paper_db import log_paper_trade
-                    for t in trades:
-                        await log_paper_trade(
-                            market=f"DCA_{t['pair']}",
-                            side="buy",
-                            size=t["coins_bought"],
-                            price=t["price"],
-                            edge=abs(t["change_pct"]) / 100,
-                            status="paper" if self.paper_mode else "live",
-                        )
                     await self.update_paper_pnl()
                 except Exception as e:
-                    logger.warning(f"DB-Log fehlgeschlagen: {e}")
+                    logger.warning(f"DCA PnL-Update fehlgeschlagen: {e}")
 
             await self.maybe_snapshot()
 

@@ -1,7 +1,7 @@
 import asyncio
 import pytest
 
-from polybot.dca_strategy import DCABot, extract_quote, rolling_24h_change_pct, rolling_change_pct
+from polybot.dca_strategy import CANDIDATE_PAIRS, PAIR_MAP, DCABot, extract_quote, rolling_24h_change_pct, rolling_change_pct
 import polybot.dca_strategy as dca_strategy
 import polybot.paper_db as paper_db
 
@@ -21,6 +21,12 @@ def test_extract_quote_falls_back_on_unusable_quote():
     assert extract_quote({"b": ["101"], "a": ["99"]}, 100.0) == (100.0, 100.0)
     assert extract_quote({"b": ["0"], "a": ["100.5"]}, 100.0) == (100.0, 100.0)
     assert extract_quote({"b": ["abc"], "a": ["100.5"]}, 100.0) == (100.0, 100.0)
+
+
+def test_current_kraken_pair_aliases_and_polygon_symbol():
+    assert PAIR_MAP["DOGEEUR"] == "XDGEUR"
+    assert "POLEUR" in CANDIDATE_PAIRS
+    assert "MATICEUR" not in CANDIDATE_PAIRS
 
 
 def test_rolling_24h_change_pct_uses_close_24_bars_back(monkeypatch):
@@ -227,7 +233,49 @@ def test_rolling_and_pair_pnl_ignore_unresolved_trades(monkeypatch, tmp_path):
 
         assert rolling_count == 1
         assert rolling_sum == pytest.approx(-0.55, rel=1e-6)
+        assert bot._rolling_latest_resolved_id == 2
         assert pair_vals == pytest.approx([-0.55], rel=1e-6)
+
+    asyncio.run(scenario())
+
+
+def test_risk_off_marker_advances_only_for_new_resolved_trade(monkeypatch, tmp_path):
+    db_path = tmp_path / "paper_trades.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def scenario():
+        await paper_db.init_db()
+        for _ in range(6):
+            trade_id = await paper_db.log_paper_trade(
+                "DCA_XBTEUR", "buy", size=0.1, price=100.0, edge=0.02, status="paper"
+            )
+            await paper_db.resolve_trade(trade_id, exit_price=95.0, real_pnl=-1.0)
+
+        bot = _bind_bot_to_tmp_storage(
+            DCABot(
+                initial_capital_eur=100.0,
+                rolling_window=6,
+                rolling_loss_limit=-5.0,
+                risk_off_rearm_on_new_trade=True,
+            ),
+            tmp_path,
+        )
+        assert bot.risk_off_rearm_on_new_trade is True
+        rolling_sum, rolling_count = bot._rolling_real_pnl_stats(6)
+        assert rolling_count == 6
+        assert rolling_sum == pytest.approx(-6.0)
+        assert bot._rolling_latest_resolved_id == 6
+
+        bot.last_risk_off_trade_id = bot._rolling_latest_resolved_id
+        bot._rolling_real_pnl_stats(6)
+        assert bot._rolling_latest_resolved_id == bot.last_risk_off_trade_id
+
+        trade_id = await paper_db.log_paper_trade(
+            "DCA_ETHEUR", "buy", size=0.1, price=100.0, edge=0.02, status="paper"
+        )
+        await paper_db.resolve_trade(trade_id, exit_price=95.0, real_pnl=-1.0)
+        bot._rolling_real_pnl_stats(6)
+        assert bot._rolling_latest_resolved_id > bot.last_risk_off_trade_id
 
     asyncio.run(scenario())
 
@@ -272,6 +320,43 @@ def test_resolve_due_trades_closes_take_profit_and_returns_cash(monkeypatch, tmp
 
         rows = await paper_db.get_open_dca_trades()
         assert rows == []
+
+    asyncio.run(scenario())
+
+
+def test_resolve_due_trades_hard_stop_realizes_loss(monkeypatch, tmp_path):
+    db_path = tmp_path / "paper_trades.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def fake_fetch_ticker_data(_pairs):
+        return {"XXBTZEUR": {"c": ["94.0"], "b": ["93.9"], "a": ["94.1"]}}
+
+    monkeypatch.setattr(dca_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
+
+    async def scenario():
+        await paper_db.init_db()
+        await paper_db.log_paper_trade("DCA_XBTEUR", "buy", size=0.1, price=100.0, edge=0.02, status="paper")
+        bot = _bind_bot_to_tmp_storage(
+            DCABot(
+                initial_capital_eur=100.0,
+                top_n=1,
+                rounds_target=10,
+                paper_mode=True,
+                take_profit_pct=0.03,
+                stop_loss_pct=0.05,
+                max_hold_sec=86400,
+                min_net_profit_eur=0.75,
+            ),
+            tmp_path,
+        )
+        await bot.restore_state_from_db()
+
+        resolved = await bot.resolve_due_trades()
+
+        assert len(resolved) == 1
+        assert resolved[0]["reason"] == "stop_loss"
+        assert resolved[0]["real_pnl"] < 0
+        assert bot.portfolio == {}
 
     asyncio.run(scenario())
 

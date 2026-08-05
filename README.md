@@ -14,6 +14,11 @@ Kerncode im aktiven Hauptbaum:
   **Der Zocker** — Momentum + Trailing Stop, hart Paper-only.
 - `polybot/meanrev_strategy.py` + `polybot/main_meanrev.py`  
   **Der Contrarian** — Mean-Reversion mit RSI/OHLC, hart Paper-only.
+- `polybot/futures_grid_strategy.py` + `polybot/main_futures_grid.py`
+  **Der Treppensteiger Turbo** — ursprüngliches 2×-ETH-Raster als Kontrollgruppe, hart Paper-only.
+- `polybot/futures_grid_signal_strategy.py` + `polybot/main_futures_grid_signal.py`
+  **Der Treppensteiger Signal** — nur bestätigte Aufwärtstrends, 25 € Margin je Stufe,
+  1,2-%-Gewinnziel und 30 Tage Verlustpause, hart Paper-only.
 - `polybot/battle_report.py`  
   Telegram Battle-Report nach Netto-Equity.
 - `polybot/paper_db.py`  
@@ -65,6 +70,10 @@ python -m polybot.main_momentum
 
 # Mean-Reversion Bot
 python -m polybot.main_meanrev
+
+# Ursprünglicher und signalgefilterter Treppensteiger (getrennte Paper-Konten)
+python -m polybot.main_futures_grid
+python -m polybot.main_futures_grid_signal
 
 # Battle-Report manuell
 python -m polybot.battle_report

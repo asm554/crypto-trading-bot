@@ -7,7 +7,7 @@ import signal
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
-from polybot.paper_db import init_db, mark_bot_started
+from polybot.paper_db import init_db, mark_bot_started, mark_bot_stopped
 from polybot.meanrev_strategy import MeanRevBot
 
 os.makedirs("logs", exist_ok=True)
@@ -18,7 +18,7 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.addHandler(logging.StreamHandler())
 
-BUDGET = float(os.getenv("REV_BUDGET", "100"))
+BUDGET = float(os.getenv("REV_BUDGET", "500"))
 INTERVAL_H = float(os.getenv("REV_INTERVAL_H", "1"))
 ENTRY_DROP_PCT = float(os.getenv("REV_ENTRY_DROP_PCT", "8.0"))
 RSI_PERIOD = int(os.getenv("REV_RSI_PERIOD", "14"))
@@ -30,7 +30,7 @@ STOCHASTIC_ENABLED = os.getenv("REV_STOCHASTIC_ENABLED", "true").lower() == "tru
 STOCHASTIC_PERIOD = int(os.getenv("REV_STOCHASTIC_PERIOD", "14"))
 STOCHASTIC_MAX = float(os.getenv("REV_STOCHASTIC_MAX", "20"))
 CONFIRM_PCT = float(os.getenv("REV_CONFIRM_PCT", "0.5"))
-POSITION_EUR = float(os.getenv("REV_POSITION_EUR", "15"))
+POSITION_EUR = float(os.getenv("REV_POSITION_EUR", "75"))
 MAX_OPEN_POSITIONS = int(os.getenv("REV_MAX_OPEN_POSITIONS", "3"))
 TAKE_PROFIT_PCT = float(os.getenv("REV_TAKE_PROFIT_PCT", "4.0"))
 STOP_LOSS_PCT = float(os.getenv("REV_STOP_LOSS_PCT", "5.0"))
@@ -71,6 +71,7 @@ async def main():
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     await bot.maybe_snapshot(force=True)
+    await mark_bot_stopped("meanrev")
 
 if __name__ == "__main__":
     asyncio.run(main())

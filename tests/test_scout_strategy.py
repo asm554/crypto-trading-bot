@@ -22,6 +22,39 @@ def valid_token(**overrides):
     return token
 
 
+def current_jupiter_token(**overrides):
+    token = {
+        "id": MINT,
+        "symbol": "TEST",
+        "usdPrice": 1.0,
+        "liquidity": 50_000,
+        "holderCount": 200,
+        "organicScore": 80,
+        "fdv": 1_000_000,
+        "audit": {
+            "mintAuthorityDisabled": True,
+            "freezeAuthorityDisabled": True,
+            "isSus": False,
+            "topHoldersPercentage": 20,
+            "devBalancePercentage": 5,
+        },
+        "stats5m": {
+            "priceChange": 4,
+            "buyVolume": 5_000,
+            "sellVolume": 3_000,
+            "buyOrganicVolume": 800,
+            "sellOrganicVolume": 200,
+            "numOrganicBuyers": 12,
+            "numTraders": 60,
+            "numBuys": 30,
+            "numSells": 15,
+        },
+        "stats1h": {"priceChange": 20},
+    }
+    token.update(overrides)
+    return token
+
+
 def bind(bot, tmp_path):
     bot.state_path = tmp_path / "scout_state.json"; bot.db_path = tmp_path / "paper_trades.db"
     bot.portfolio = {}; bot.watchlist = {}; bot.capital_remaining = bot.initial_capital_eur; bot.last_scan = 0
@@ -35,6 +68,12 @@ def test_score_requires_every_security_and_activity_gate():
     assert score < 100 and "mint_authority" in reasons
     score, reasons = score_token(valid_token(stats5m={"volumeUsd": 8_000}))
     assert "organic_activity" in reasons
+
+
+def test_score_accepts_current_jupiter_tokens_v2_schema():
+    score, reasons = score_token(current_jupiter_token())
+    assert score == 100
+    assert reasons == []
 
 
 def test_scout_is_hard_paper_only():
@@ -81,5 +120,37 @@ def test_stop_loss_closes_paper_position(monkeypatch, tmp_path):
         assert closed[0]["reason"] == "stop_loss"
         assert bot.portfolio == {}
         assert bot.consecutive_losses == 1
+
+    asyncio.run(scenario())
+
+
+def test_trailing_stop_stays_active_after_price_drops_below_activation(monkeypatch, tmp_path):
+    monkeypatch.setattr(paper_db, "DB_PATH", str(tmp_path / "paper_trades.db"))
+
+    async def scenario():
+        await paper_db.init_db()
+        bot = bind(ScoutBot(api_key="test"), tmp_path)
+        trade_id = await paper_db.log_paper_trade(f"SCOUT_TEST@{MINT}", "buy", 5, 1, 0, "paper")
+        bot.capital_remaining = 95
+        bot.portfolio[MINT] = {
+            "shares": 5,
+            "cost_basis": 5,
+            "entry_price": 1,
+            "entry_ts": time.time(),
+            "peak_price": 1.20,
+            "trailing_active": True,
+            "trade_id": trade_id,
+        }
+
+        async def prices(_mints):
+            return {MINT: {"usdPrice": 1.08}}
+
+        async def rate():
+            return 1.0
+
+        monkeypatch.setattr(bot, "_prices", prices)
+        monkeypatch.setattr(bot, "_eurusd", rate)
+        closed = await bot.manage_positions()
+        assert closed[0]["reason"] == "trailing_stop"
 
     asyncio.run(scenario())

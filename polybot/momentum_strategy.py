@@ -24,7 +24,7 @@ BOT_KEY = "momentum"
 class MomentumBot:
     def __init__(
         self,
-        initial_capital_eur: float = 100.0,
+        initial_capital_eur: float = 500.0,
         interval_sec: int = 3600,
         entry_change_pct: float = 3.0,
         entry_max_change_pct: float = 25.0,
@@ -35,6 +35,7 @@ class MomentumBot:
         hard_stop_pct: float = 4.0,
         max_hold_sec: int = 48 * 3600,
         cooldown_sec: int = 6 * 3600,
+        cooldown_after_loss_sec: int = 24 * 3600,
         paper_mode: bool = True,
         snapshot_interval_sec: int = 3600,
     ):
@@ -50,6 +51,7 @@ class MomentumBot:
         self.hard_stop_pct = float(hard_stop_pct)
         self.max_hold_sec = int(max_hold_sec)
         self.cooldown_sec = int(cooldown_sec)
+        self.cooldown_after_loss_sec = int(cooldown_after_loss_sec)
         self.paper_mode = bool(paper_mode)
         self.snapshot_interval_sec = int(snapshot_interval_sec)
         if not self.paper_mode:
@@ -91,6 +93,13 @@ class MomentumBot:
                 self.last_entry_scan = float(raw.get("last_entry_scan", 0.0))
                 self.last_snapshot = float(raw.get("last_snapshot", 0.0))
                 self.trade_count = int(raw.get("trade_count", 0))
+                state_ids = {
+                    int(pos.get("trade_id") or 0)
+                    for pos in self.portfolio.values()
+                    if int(pos.get("trade_id") or 0) > 0
+                }
+                if state_ids != paper_db_module.get_open_trade_ids_by_prefix_sync(PREFIX):
+                    raise ValueError("State und offenes MOM-Ledger weichen ab")
                 logger.info("♻️ Momentum state geladen: cash=%.2f€, open=%d", self.capital_remaining, len(self.portfolio))
                 return
             except Exception as e:
@@ -109,7 +118,10 @@ class MomentumBot:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         try:
-            rows = conn.execute("SELECT * FROM paper_trades WHERE market_question LIKE ? ORDER BY id ASC", (f"{PREFIX}%",)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM paper_trades WHERE market_question LIKE ? ESCAPE '\\' ORDER BY id ASC",
+                (paper_db_module.prefix_like_pattern(PREFIX),),
+            ).fetchall()
         finally:
             conn.close()
         for row in rows:
@@ -193,9 +205,17 @@ class MomentumBot:
             current_value = shares * exit_price
             fee = config.CRYPTO_TAKER_FEE_RATE
             real_pnl = current_value - entry_cost - entry_cost * fee - current_value * fee
-            await resolve_trade(trade_id, exit_price, round(real_pnl, 6))
+            if not await resolve_trade(trade_id, exit_price, round(real_pnl, 6)):
+                self._rebuild_state_from_db()
+                self._save_state()
+                return resolved
             self.capital_remaining += entry_cost + real_pnl
-            self.cooldowns[pair] = now + self.cooldown_sec
+            # Verlust-Exits bekommen einen längeren Cooldown als Gewinn-Exits:
+            # Live-Daten zeigten 6 ADAEUR-Verluste in Serie, weil der Bot nach
+            # 6h Cooldown dieselbe fallende Rally immer wieder nachgekauft hat
+            # (gleiches Muster wie cooldown_after_stop_sec in memecoin_strategy).
+            cooldown = self.cooldown_after_loss_sec if real_pnl < 0 else self.cooldown_sec
+            self.cooldowns[pair] = now + cooldown
             self.portfolio.pop(pair, None)
             resolved.append({"pair": pair, "reason": reason, "pnl": real_pnl})
             logger.info("✅ MOM Exit %s: %s @ %.6f€ (Last %.6f€) | PnL %+0.4f€", pair, reason, exit_price, last, real_pnl)
@@ -265,12 +285,13 @@ class MomentumBot:
         fee = config.CRYPTO_TAKER_FEE_RATE
         for pair, pos in self.portfolio.items():
             snap = self._snapshot_for_pair(pair, ticker)
+            entry_cost = float(pos["cost_basis"])
             if not snap:
+                mtm += entry_cost
                 continue
             # Mark-to-Market simuliert den Verkauf, also zum Bid bewerten.
             current_value = float(pos["shares"]) * float(snap.get("bid") or snap["last_price"])
             sell_fee = current_value * fee
-            entry_cost = float(pos["cost_basis"])
             mtm += current_value - sell_fee
             unrealized += current_value - entry_cost - entry_cost * fee - sell_fee
         realized = await paper_db_module.get_realized_pnl_by_prefix(PREFIX)

@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
+import { ChartNoAxesCombined } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -93,6 +95,7 @@ export function TradesView({
               <TableHead className="text-right">Betrag</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Ergebnis</TableHead>
+              <TableHead className="text-right">Verlauf</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -126,6 +129,16 @@ export function TradesView({
                   )}
                 >
                   {t.pnlEur == null ? "—" : signedEur(t.pnlEur)}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Link
+                    href={`/trades/${t.id}`}
+                    aria-label={`Kursverlauf für Trade ${t.id} öffnen`}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <ChartNoAxesCombined className="size-3.5" />
+                    <span className="hidden sm:inline">Details</span>
+                  </Link>
                 </TableCell>
               </TableRow>
             ))}

@@ -11,8 +11,11 @@ from polybot import config
 from polybot import paper_db as paper_db_module
 from polybot.alerts import send_telegram
 from polybot.dca_strategy import PAIR_MAP, extract_quote, fetch_ticker_data
+from polybot.futures_strategy import fetch_eur_usd_rate, fetch_futures_tickers, position_mark_to_market
 from polybot.memecoin_strategy import DEFAULT_DEX_FEE_PCT, DEFAULT_SLIPPAGE_PCT, EURUSD_INTERNAL, EURUSD_PAIR, FALLBACK_EUR_USD_RATE, fetch_pairs_by_address
 from polybot.scout_strategy import fetch_scout_prices
+from polybot.candlestick_strategy import SOL_MINT, USDC_MINT, fetch_jupiter_quote
+from polybot.ultimate_strategy import DEFAULT_TAKER_FEE_RATE as ULTIMATE_TAKER_FEE_RATE
 from polybot.paper_db import DB_PATH, get_open_trades_by_prefix, init_db, log_equity_snapshot, prefix_like_pattern
 
 DATA_DIR = Path(DB_PATH).resolve().parent
@@ -29,8 +32,13 @@ BOTS = {
     "pumpfun": {"label": "Der PumpFun", "prefix": "PUMP_", "state": DATA_DIR / "pumpfun_state.json"},
     "pumpfun_v2": {"label": "PumpFun V2", "prefix": "PUMP2_", "state": DATA_DIR / "pumpfun_v2_state.json"},
     "surfer": {"label": "Der Surfer", "prefix": "SURF_", "state": DATA_DIR / "surfer_state.json"},
+    "candlestick": {"label": "Kerzenreiter", "prefix": "CND_", "state": DATA_DIR / "candlestick_state.json"},
+    "ultimate": {"label": "Der Ultimative", "prefix": "ULT_", "state": DATA_DIR / "ultimate_state.json"},
     "scout": {"label": "Der Spaeher", "prefix": "SCOUT_", "state": DATA_DIR / "scout_state.json"},
     "hodl": {"label": "Der HODLer", "prefix": "HODL_", "state": DATA_DIR / "hodl_state.json"},
+    "futures": {"label": "Der Hebler", "prefix": "FUT_", "state": DATA_DIR / "futures_state.json"},
+    "futures_grid": {"label": "Treppen Turbo", "prefix": "GRIDFUT_", "state": DATA_DIR / "futures_grid_state.json"},
+    "futures_grid_signal": {"label": "Treppen Signal", "prefix": "GRIDSIG_", "state": DATA_DIR / "futures_grid_signal_state.json"},
 }
 
 
@@ -50,6 +58,14 @@ def load_cash(state_path: Path, default: float = 100.0) -> float:
         return float(raw.get("capital_remaining", default))
     except Exception:
         return default
+
+
+def attach_initial_capital(snap: dict, open_rows: list[dict]) -> dict:
+    """Leitet das Startkapital aus Cash, offenen Kosten und Real-PnL ab."""
+    open_cost = sum(float(row["size"]) * float(row["entry_price"]) for row in open_rows)
+    inferred = float(snap["cash_eur"]) + open_cost - float(snap["realized_pnl_eur"])
+    snap["initial_capital_eur"] = inferred if inferred > 0 else 100.0
+    return snap
 
 
 async def equity_for(prefix: str, state_path: Path, bot: str) -> dict:
@@ -84,7 +100,7 @@ async def equity_for(prefix: str, state_path: Path, bot: str) -> dict:
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
     snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
     await log_equity_snapshot(bot, **snap)
-    return snap
+    return attach_initial_capital(snap, open_rows)
 
 
 async def equity_for_memecoin(prefix: str, state_path: Path, bot: str) -> dict:
@@ -126,18 +142,32 @@ async def equity_for_memecoin(prefix: str, state_path: Path, bot: str) -> dict:
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
     snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
     await log_equity_snapshot(bot, **snap)
-    return snap
+    return attach_initial_capital(snap, open_rows)
 
 
 async def equity_for_pumpfun(prefix: str, state_path: Path, bot: str) -> dict:
-    """Konservative Pump.fun-Paper-Bewertung ohne erfundene Marktpreise."""
+    """Bewertet offene Pump-Positionen mit dem letzten Event-Mark aus dem State."""
     cash = load_cash(state_path)
     open_rows = await get_open_trades_by_prefix(prefix)
-    mtm = sum(float(row["size"]) * float(row["entry_price"]) for row in open_rows)
+    try:
+        state = json.loads(state_path.read_text())
+        positions = state.get("portfolio") or {}
+    except Exception:
+        positions = {}
+    marks_by_id = {
+        int(pos.get("trade_id") or 0): float(pos.get("mark_value", pos.get("cost_basis", 0.0)) or 0.0)
+        for pos in positions.values()
+    }
+    mtm = 0.0
+    open_cost = 0.0
+    for row in open_rows:
+        cost = float(row["size"]) * float(row["entry_price"])
+        open_cost += cost
+        mtm += marks_by_id.get(int(row["id"]), cost)
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
-    snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": 0.0, "realized_pnl_eur": realized}
+    snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": mtm - open_cost, "realized_pnl_eur": realized}
     await log_equity_snapshot(bot, **snap)
-    return snap
+    return attach_initial_capital(snap, open_rows)
 
 
 async def equity_for_scout(prefix: str, state_path: Path, bot: str) -> dict:
@@ -158,7 +188,7 @@ async def equity_for_scout(prefix: str, state_path: Path, bot: str) -> dict:
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
     snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(open_rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
     await log_equity_snapshot(bot, **snap)
-    return snap
+    return attach_initial_capital(snap, open_rows)
 
 
 async def equity_for_hodl(prefix: str, state_path: Path, bot: str) -> dict:
@@ -176,6 +206,139 @@ async def equity_for_hodl(prefix: str, state_path: Path, bot: str) -> dict:
         mtm += value; unrealized += value - cost
     realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
     snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
+    await log_equity_snapshot(bot, **snap)
+    return attach_initial_capital(snap, rows)
+
+
+async def equity_for_futures(prefix: str, state_path: Path, bot: str) -> dict:
+    """Value the isolated-margin paper futures account from its persisted state."""
+    try:
+        state = json.loads(state_path.read_text())
+    except Exception:
+        state = {}
+    cash = float(state.get("capital_remaining", 1000.0))
+    orders = list(state.get("orders") or [])
+    ticker = await fetch_ticker_data(["ETHEUR"]) if orders else {}
+    data = ticker.get(PAIR_MAP.get("ETHEUR", "ETHEUR")) or ticker.get("ETHEUR")
+    if data:
+        last = float(data["c"][0])
+        bid, _ = extract_quote(data, last)
+    else:
+        bid = 0.0
+    reserved = unrealized = exit_fee = 0.0
+    for order in orders:
+        reserved += float(order.get("margin_eur", 0.0))
+        shares = float(order.get("shares", 0.0))
+        entry = float(order.get("entry_price", 0.0))
+        mark = bid if bid > 0 else entry
+        unrealized += shares * (mark - entry)
+        exit_fee += shares * mark * float(order.get("taker_fee_rate", 0.0005))
+    realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
+    funding = float(state.get("realized_funding_eur", 0.0))
+    snap = {
+        "equity_eur": cash + reserved + unrealized - exit_fee,
+        "cash_eur": cash,
+        "open_positions": len(orders),
+        "unrealized_pnl_eur": unrealized - exit_fee,
+        "realized_pnl_eur": realized - funding,
+    }
+    await log_equity_snapshot(bot, **snap)
+    return snap
+
+
+async def equity_for_perp_futures(prefix: str, state_path: Path, bot: str) -> dict:
+    """Value isolated Kraken perpetual positions including fees and funding.
+
+    Nicht zu verwechseln mit ``equity_for_futures`` — das bewertet den
+    ETH-Grid-Bot (GRIDFUT_) aus seiner Orderliste, während "Der Hebler" (FUT_)
+    ein ``portfolio``-Dict aus Perpetual-Positionen hält.
+    """
+    try:
+        state = json.loads(state_path.read_text())
+    except Exception:
+        state = {}
+    cash = float(state.get("capital_remaining", 500.0))
+    portfolio = state.get("portfolio") or {}
+    symbols = list(portfolio)
+    tickers, eur_usd = await asyncio.gather(
+        fetch_futures_tickers(symbols) if symbols else asyncio.sleep(0, result={}),
+        fetch_eur_usd_rate(),
+    )
+    open_value = 0.0
+    unrealized = 0.0
+    taker_fee = float(state.get("taker_fee_rate", 0.0005))
+    now = time.time()
+    for symbol, position in portfolio.items():
+        value, pnl = position_mark_to_market(
+            position,
+            tickers.get(symbol),
+            eur_usd,
+            taker_fee,
+            include_pending_funding=True,
+            now=now,
+        )
+        open_value += value
+        unrealized += pnl
+    realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
+    snap = {
+        "equity_eur": cash + open_value,
+        "cash_eur": cash,
+        "open_positions": len(portfolio),
+        "unrealized_pnl_eur": unrealized,
+        "realized_pnl_eur": realized,
+    }
+    await log_equity_snapshot(bot, **snap)
+    return snap
+
+
+async def equity_for_candlestick(prefix: str, state_path: Path, bot: str) -> dict:
+    """Value the SOL/USDC paper position from a read-only Jupiter exit quote."""
+    try:
+        state = json.loads(state_path.read_text())
+    except Exception:
+        state = {}
+    cash = float(state.get("capital_remaining", 100.0))
+    rows = await get_open_trades_by_prefix(prefix)
+    ticker = await fetch_ticker_data([EURUSD_PAIR]) if rows else {}
+    eurusd = ticker.get(EURUSD_INTERNAL) or ticker.get(EURUSD_PAIR)
+    rate = float(eurusd["c"][0]) if eurusd else FALLBACK_EUR_USD_RATE
+    mtm = unrealized = 0.0
+    for row in rows:
+        shares = float(row["size"])
+        cost = shares * float(row["entry_price"])
+        quote = await fetch_jupiter_quote(SOL_MINT, USDC_MINT, round(shares * 1_000_000_000))
+        value = (float(quote.get("otherAmountThreshold") or quote["outAmount"]) / 1_000_000) / rate if quote else cost
+        mtm += value
+        unrealized += value - cost
+    realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
+    snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(rows), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
+    await log_equity_snapshot(bot, **snap)
+    return snap
+
+
+async def equity_for_ultimate(prefix: str, state_path: Path, bot: str) -> dict:
+    """Value multiple ledger tranches as one adaptive-bot position."""
+    cash = load_cash(state_path)
+    rows = await get_open_trades_by_prefix(prefix)
+    pairs = sorted({row["market_question"].removeprefix(prefix) for row in rows})
+    ticker = await fetch_ticker_data(pairs) if pairs else {}
+    mtm = unrealized = 0.0
+    for row in rows:
+        pair = row["market_question"].removeprefix(prefix)
+        data = ticker.get(PAIR_MAP.get(pair, pair)) or ticker.get(pair)
+        shares = float(row["size"])
+        entry = float(row["entry_price"])
+        cost = shares * entry
+        if data:
+            bid, _ask = extract_quote(data, float(data["c"][0]))
+            value = shares * bid
+            net = value - cost * ULTIMATE_TAKER_FEE_RATE - value * ULTIMATE_TAKER_FEE_RATE
+        else:
+            net = cost
+        mtm += net
+        unrealized += net - cost
+    realized = await paper_db_module.get_realized_pnl_by_prefix(prefix)
+    snap = {"equity_eur": cash + mtm, "cash_eur": cash, "open_positions": len(pairs), "unrealized_pnl_eur": unrealized, "realized_pnl_eur": realized}
     await log_equity_snapshot(bot, **snap)
     return snap
 
@@ -286,18 +449,29 @@ async def build_report() -> str:
             snaps[bot] = await equity_for_scout(cfg["prefix"], cfg["state"], bot)
         elif bot == "hodl":
             snaps[bot] = await equity_for_hodl(cfg["prefix"], cfg["state"], bot)
+        elif bot == "futures":
+            snaps[bot] = await equity_for_perp_futures(cfg["prefix"], cfg["state"], bot)
+        elif bot in {"futures_grid", "futures_grid_signal"}:
+            snaps[bot] = await equity_for_futures(cfg["prefix"], cfg["state"], bot)
+        elif bot == "candlestick":
+            snaps[bot] = await equity_for_candlestick(cfg["prefix"], cfg["state"], bot)
+        elif bot == "ultimate":
+            snaps[bot] = await equity_for_ultimate(cfg["prefix"], cfg["state"], bot)
         else:
             snaps[bot] = await equity_for(cfg["prefix"], cfg["state"], bot)
-    ranking = sorted(snaps.items(), key=lambda kv: kv[1]["equity_eur"], reverse=True)
+    leveraged_keys = {"futures_grid", "futures_grid_signal"}
+    standard_snaps = {bot: snap for bot, snap in snaps.items() if bot not in leveraged_keys}
+    ranking = sorted(standard_snaps.items(), key=lambda kv: kv[1]["equity_eur"], reverse=True)
     lines = [f"🏁 Strategie-Battle — Tag {day}/{int(meta.get('duration_days', DURATION_DAYS))}", ""]
     for idx, (bot, s) in enumerate(ranking):
         vals = [r[1] for r in rows_for_bot(bot)]
-        pct = (s["equity_eur"] - 100.0)
+        initial = float(s.get("initial_capital_eur", 100.0) or 100.0)
+        pct = (s["equity_eur"] / initial - 1) * 100
         lines.append(f"{rank_marker(idx)} {BOTS[bot]['label']:<16} {s['equity_eur']:>7.2f} € ({pct:+.1f} %) {spark(vals)}")
     lines.append("")
     lines.append("```")
     lines.append("           Equity   offen  real.PnL  Trades  MaxDD  UW(h)  Serie")
-    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "scout", "hodl"]:
+    for bot in ["dca", "momentum", "meanrev", "arb", "daytrade", "memecoin", "pumpfun", "pumpfun_v2", "surfer", "candlestick", "ultimate", "scout", "hodl", "futures"]:
         cfg = BOTS[bot]
         s = snaps[bot]
         rows = rows_for_bot(bot)
@@ -309,6 +483,16 @@ async def build_report() -> str:
             f"{longest_losing_streak(cfg['prefix']):>6}"
         )
     lines.append("```")
+    lines.append("")
+    lines.append("⚡ Gesonderte Hebel-Wertung (1.000 € Startkapital, 2× Paper)")
+    for bot in ("futures_grid", "futures_grid_signal"):
+        future = snaps[bot]
+        future_vals = [row[1] for row in rows_for_bot(bot)]
+        future_pct = (future["equity_eur"] / 1000.0 - 1) * 100
+        lines.append(
+            f"{BOTS[bot]['label']} {future['equity_eur']:.2f} € ({future_pct:+.1f} %) | "
+            f"offen {future['open_positions']} | MaxDD {max_drawdown(future_vals):+.1f}%"
+        )
     lines.append("")
     lines.append("KPI: Ranking nach Netto-Equity (Cash + Mark-to-Market nach Gebühren), nicht nach realisiertem PnL.")
     lines.append("Fills: Kauf zum Ask, Verkauf zum Bid (echter Kraken-Spread).")

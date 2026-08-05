@@ -7,7 +7,7 @@ import signal
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
-from polybot.paper_db import init_db, mark_bot_started
+from polybot.paper_db import init_db, mark_bot_started, mark_bot_stopped
 from polybot.surfer_strategy import SurferBot
 
 os.makedirs("logs", exist_ok=True)
@@ -18,7 +18,7 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.addHandler(logging.StreamHandler())
 
-BUDGET = float(os.getenv("SURF_BUDGET", "100"))
+BUDGET = float(os.getenv("SURF_BUDGET", "500"))
 INTERVAL_SEC = int(os.getenv("SURF_INTERVAL_SEC", "3600"))
 TREND_LOOKBACK_H = int(os.getenv("SURF_TREND_LOOKBACK_H", "4"))
 MIN_TREND_PCT = float(os.getenv("SURF_MIN_TREND_PCT", "0.0"))
@@ -28,8 +28,8 @@ EMA_SLOW_PERIOD = int(os.getenv("SURF_EMA_SLOW_PERIOD", "50"))
 ATR_PERIOD = int(os.getenv("SURF_ATR_PERIOD", "14"))
 ATR_STOP_MULTIPLIER = float(os.getenv("SURF_ATR_STOP_MULTIPLIER", "2.0"))
 VOLUME_MULTIPLIER = float(os.getenv("SURF_VOLUME_MULTIPLIER", "1.2"))
-MAX_RISK_EUR = float(os.getenv("SURF_MAX_RISK_EUR", "0.50"))
-MAX_POSITION_EUR = float(os.getenv("SURF_MAX_POSITION_EUR", "25"))
+MAX_RISK_EUR = float(os.getenv("SURF_MAX_RISK_EUR", "2.50"))
+MAX_POSITION_EUR = float(os.getenv("SURF_MAX_POSITION_EUR", "125"))
 TRAILING_STOP_PCT = float(os.getenv("SURF_TRAILING_STOP_PCT", "3.0"))
 MAX_HOLD_H = float(os.getenv("SURF_MAX_HOLD_H", str(7 * 24)))
 LOSS_STREAK_LIMIT = int(os.getenv("SURF_LOSS_STREAK_LIMIT", "3"))
@@ -69,6 +69,7 @@ async def main():
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     await bot.maybe_snapshot(force=True)
+    await mark_bot_stopped("surfer")
 
 if __name__ == "__main__":
     asyncio.run(main())

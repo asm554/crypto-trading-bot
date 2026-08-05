@@ -15,10 +15,12 @@ PrivateTmp=true
 ProtectSystem=strict
 ReadWritePaths=/root/crypto-trading-bot/polybot/data
 Environment=PYTHONUNBUFFERED=1
-Environment=HODL_BUDGET=100
-Environment=HODL_CASH_RESERVE_EUR=20
-Environment=HODL_MAX_WEEKLY_EUR=20
+Environment=HODL_BUDGET=500
+Environment=HODL_CASH_RESERVE_EUR=100
+Environment=HODL_MAX_WEEKLY_EUR=100
 Environment=HODL_BEAR_RATE_PCT=35
+Environment=HODL_OVERHEAT_MOMENTUM_PCT=50
+Environment=HODL_OVERHEAT_EMA_PCT=25
 Environment=HODL_PAPER_MODE=true
 [Install]
 WantedBy=multi-user.target

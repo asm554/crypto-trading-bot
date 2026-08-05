@@ -22,9 +22,9 @@ async def main():
     await init_db()
     await mark_bot_started("scout")
     bot = ScoutBot(
-        initial_capital_eur=env_float("SCOUT_BUDGET", 100), interval_sec=env_int("SCOUT_INTERVAL_SEC", 30),
-        position_eur=env_float("SCOUT_POSITION_EUR", 5), max_open_positions=env_int("SCOUT_MAX_OPEN_POSITIONS", 2),
-        cash_reserve_eur=env_float("SCOUT_CASH_RESERVE_EUR", 85), maturity_sec=env_int("SCOUT_MATURITY_MIN", 20) * 60,
+        initial_capital_eur=env_float("SCOUT_BUDGET", 500), interval_sec=env_int("SCOUT_INTERVAL_SEC", 30),
+        position_eur=env_float("SCOUT_POSITION_EUR", 25), max_open_positions=env_int("SCOUT_MAX_OPEN_POSITIONS", 2),
+        cash_reserve_eur=env_float("SCOUT_CASH_RESERVE_EUR", 425), maturity_sec=env_int("SCOUT_MATURITY_MIN", 20) * 60,
         max_pool_age_sec=env_int("SCOUT_MAX_POOL_AGE_H", 12) * 3600, min_score=env_int("SCOUT_MIN_SCORE", 60),
         max_price_impact_pct=env_float("SCOUT_MAX_PRICE_IMPACT_PCT", 1.5), max_round_trip_cost_pct=env_float("SCOUT_MAX_ROUND_TRIP_COST_PCT", 8),
         paper_slippage_pct=env_float("SCOUT_PAPER_SLIPPAGE_PCT", .5), stop_loss_pct=env_float("SCOUT_STOP_LOSS_PCT", 12),

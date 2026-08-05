@@ -74,7 +74,7 @@ logger = logging.getLogger(__name__)
 PREFIX = "CHAIN_"
 BOT_KEY = "memecoin"
 
-DEXSCREENER_TOKENS_URL = "https://api.dexscreener.com/latest/dex/tokens"
+DEXSCREENER_TOKENS_URL = "https://api.dexscreener.com/tokens/v1/solana"
 DEXSCREENER_BOOSTS_TOP_URL = "https://api.dexscreener.com/token-boosts/top/v1"
 DEXSCREENER_BOOSTS_LATEST_URL = "https://api.dexscreener.com/token-boosts/latest/v1"
 DEXSCREENER_PROFILES_LATEST_URL = "https://api.dexscreener.com/token-profiles/latest/v1"
@@ -148,7 +148,8 @@ async def fetch_pairs_by_address(addresses: list[str]) -> dict[str, dict]:
             except Exception as e:
                 logger.error(f"DexScreener /tokens/ fehlgeschlagen: {e}")
                 continue
-            for p in data.get("pairs") or []:
+            pair_rows = data if isinstance(data, list) else (data.get("pairs") or [])
+            for p in pair_rows:
                 if p.get("chainId") != "solana":
                     continue
                 addr = p.get("baseToken", {}).get("address")
@@ -206,7 +207,7 @@ def _sanitize_symbol(raw: str) -> str:
 class MemecoinMomentumBot:
     def __init__(
         self,
-        initial_capital_eur: float = 100.0,
+        initial_capital_eur: float = 500.0,
         interval_sec: int = 300,
         entry_change_pct: float = 8.0,
         entry_max_change_pct: float = 35.0,
@@ -308,6 +309,13 @@ class MemecoinMomentumBot:
                 self.last_scan = float(raw.get("last_scan", 0.0))
                 self.last_snapshot = float(raw.get("last_snapshot", 0.0))
                 self.trade_count = int(raw.get("trade_count", 0))
+                state_ids = {
+                    int(pos.get("trade_id") or 0)
+                    for pos in self.portfolio.values()
+                    if int(pos.get("trade_id") or 0) > 0
+                }
+                if state_ids != paper_db_module.get_open_trade_ids_by_prefix_sync(PREFIX):
+                    raise ValueError("State und offenes CHAIN-Ledger weichen ab")
                 logger.info("♻️ Memecoin state geladen: cash=%.2f€, open=%d", self.capital_remaining, len(self.portfolio))
                 return
             except Exception as e:
@@ -326,7 +334,10 @@ class MemecoinMomentumBot:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         try:
-            rows = conn.execute("SELECT * FROM paper_trades WHERE market_question LIKE ? ORDER BY id ASC", (f"{PREFIX}%",)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM paper_trades WHERE market_question LIKE ? ESCAPE '\\' ORDER BY id ASC",
+                (paper_db_module.prefix_like_pattern(PREFIX),),
+            ).fetchall()
         finally:
             conn.close()
         for row in rows:
@@ -457,7 +468,10 @@ class MemecoinMomentumBot:
             entry_cost = shares * entry
             current_value = shares * exit_price
             real_pnl = current_value - entry_cost
-            await resolve_trade(int(pos["trade_id"]), exit_price, round(real_pnl, 6))
+            if not await resolve_trade(int(pos["trade_id"]), exit_price, round(real_pnl, 6)):
+                self._rebuild_state_from_db()
+                self._save_state()
+                return resolved
             self.capital_remaining += entry_cost + real_pnl
             cooldown_len = self.cooldown_after_stop_sec if reason == "stop_loss" else self.cooldown_sec
             self.cooldowns[address] = now + cooldown_len
@@ -541,8 +555,13 @@ class MemecoinMomentumBot:
             if not (self.entry_change_pct <= change_h1 <= self.entry_max_change_pct):
                 logger.info("⏭️ CHAIN %s: Momentum %+0.2f%% (h1) nicht in %.2f..%.2f%%", symbol, change_h1, self.entry_change_pct, self.entry_max_change_pct)
                 continue
-            if change_m5 is not None and not (0 < change_m5 <= self.max_m5_change_pct):
-                logger.info("⏭️ CHAIN %s: m5-Momentum %+0.2f%% nicht im Reclaim-Band 0..%.2f%%", symbol, change_m5, self.max_m5_change_pct)
+            if change_m5 is None or not (0 < change_m5 <= self.max_m5_change_pct):
+                logger.info(
+                    "⏭️ CHAIN %s: m5-Momentum %s nicht im Reclaim-Band 0..%.2f%%",
+                    symbol,
+                    f"{change_m5:+0.2f}%" if change_m5 is not None else "n/a",
+                    self.max_m5_change_pct,
+                )
                 continue
             if change_h6 is not None and change_h6 >= self.max_h6_change_pct:
                 logger.info("⏭️ CHAIN %s: h6-Bewegung %+0.2f%% >= %.0f%% – möglicher Tages-Blowoff", symbol, change_h6, self.max_h6_change_pct)

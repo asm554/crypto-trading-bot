@@ -156,10 +156,16 @@ async def init_db():
             pass
         await db.commit()
 
-async def log_paper_trade(market, side, size, price, edge, status="taken") -> int:
+async def log_paper_trade(market, side, size, price, edge, status="taken", db_path=None) -> int:
     """Logs a simulated trade to the database and returns its row id."""
     aiosqlite = _require_aiosqlite()
-    async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
+    target_db = os.fspath(db_path or DB_PATH)
+    target_dir = os.path.dirname(target_db)
+    if target_dir:
+        os.makedirs(target_dir, exist_ok=True)
+    async with aiosqlite.connect(target_db, timeout=30.0) as db:
+        for stmt in SYNC_SCHEMA_STATEMENTS:
+            await db.execute(stmt)
         cursor = await db.execute('''
             INSERT INTO paper_trades (timestamp, market_question, side, size, price, edge_percent, status)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -168,6 +174,44 @@ async def log_paper_trade(market, side, size, price, edge, status="taken") -> in
         trade_id = int(cursor.lastrowid or 0)
     logger.info(f"💾 Paper trade logged to DB: #{trade_id} {market} @ {price}")
     return trade_id
+
+
+async def log_resolved_paper_trade(
+    market,
+    side,
+    size,
+    price,
+    edge,
+    exit_price,
+    real_pnl,
+    status="paper",
+    db_path=None,
+) -> int:
+    """Schreibt einen bereits abgeschlossenen Ledger-Eintrag atomar."""
+    aiosqlite = _require_aiosqlite()
+    target_db = os.fspath(db_path or DB_PATH)
+    target_dir = os.path.dirname(target_db)
+    if target_dir:
+        os.makedirs(target_dir, exist_ok=True)
+    now = time.time()
+    async with aiosqlite.connect(target_db, timeout=30.0) as db:
+        for stmt in SYNC_SCHEMA_STATEMENTS:
+            await db.execute(stmt)
+        cursor = await db.execute(
+            """
+            INSERT INTO paper_trades (
+                timestamp, market_question, side, size, price, edge_percent,
+                status, exit_price, resolved_at, real_pnl
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (now, market, side, size, price, edge * 100, status, exit_price, now, real_pnl),
+        )
+        await db.commit()
+        trade_id = int(cursor.lastrowid or 0)
+    logger.info("💾 Abgeschlossener Paper-Eintrag #%s %s pnl=%+.4f", trade_id, market, real_pnl)
+    return trade_id
+
 
 async def migrate_paper_trades_columns():
     """Fügt neue Spalten hinzu falls sie noch nicht existieren (safe migration)."""
@@ -230,22 +274,64 @@ async def get_open_dca_trades() -> list[dict]:
                 })
     return rows
 
-async def resolve_trade(trade_id: int, exit_price: float, real_pnl: float):
-    """Speichert das echte Ergebnis eines Trades."""
+async def resolve_trade(trade_id: int, exit_price: float, real_pnl: float) -> bool:
+    """Speichert das Ergebnis genau einmal.
+
+    ``False`` bedeutet, dass der Trade nicht mehr offen war. Aufrufer dürfen in
+    diesem Fall weder Cash gutschreiben noch ihren Runtime-State weiter
+    verändern. Das macht den Exit-Pfad nach einem Crash/Restart idempotent.
+    """
     aiosqlite = _require_aiosqlite()
     async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
-        await db.execute(
-            "UPDATE paper_trades SET exit_price=?, resolved_at=?, real_pnl=? WHERE id=?",
+        cursor = await db.execute(
+            "UPDATE paper_trades SET exit_price=?, resolved_at=?, real_pnl=? "
+            "WHERE id=? AND resolved_at IS NULL",
             (exit_price, time.time(), real_pnl, trade_id)
         )
         await db.commit()
+        updated = cursor.rowcount == 1
+    if not updated:
+        logger.warning("Trade #%s war bereits aufgelöst oder existiert nicht", trade_id)
+        return False
     logger.info(f"✅ Trade #{trade_id} aufgelöst: exit={exit_price:.4f} pnl={real_pnl:+.4f}$")
+    return True
+
+
+async def update_unrealized_pnls(values: dict[int, float]) -> None:
+    """Aktualisiert den aktuellen Netto-PnL offener Positionen in einem DB-Lauf."""
+    if not values:
+        return
+    aiosqlite = _require_aiosqlite()
+    rows = [(float(pnl), int(trade_id)) for trade_id, pnl in values.items()]
+    async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
+        await db.executemany(
+            "UPDATE paper_trades SET unrealized_pnl=? WHERE id=? AND resolved_at IS NULL",
+            rows,
+        )
+        await db.commit()
 
 
 def prefix_like_pattern(prefix: str) -> str:
     """Build an escaped SQL LIKE pattern that treats a bot prefix literally."""
     escaped = str(prefix).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"{escaped}%"
+
+
+def get_open_trade_ids_by_prefix_sync(prefix: str) -> set[int]:
+    """Offene Ledger-IDs für einen Bot; für State-Abgleich beim Prozessstart."""
+    import sqlite3
+
+    _ensure_sync_db()
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    try:
+        rows = conn.execute(
+            "SELECT id FROM paper_trades "
+            "WHERE market_question LIKE ? ESCAPE '\\' AND resolved_at IS NULL",
+            (prefix_like_pattern(prefix),),
+        ).fetchall()
+        return {int(row[0]) for row in rows}
+    finally:
+        conn.close()
 
 
 async def get_open_trades_by_prefix(prefix: str) -> list[dict]:
@@ -315,8 +401,16 @@ async def mark_bot_started(bot: str, started_at: float | None = None) -> None:
 
 async def mark_bot_stopped(bot: str) -> None:
     aiosqlite = _require_aiosqlite()
+    now = time.time()
     async with aiosqlite.connect(DB_PATH, timeout=30.0) as db:
-        await db.execute("UPDATE bot_status SET heartbeat_at=?, status='stopped' WHERE bot=?", (time.time(), bot))
+        await db.execute("UPDATE bot_status SET heartbeat_at=?, status='stopped' WHERE bot=?", (now, bot))
+        # Der Cloud-Sync spiegelt derzeit nur Equity-Snapshots. Das Stop-Ereignis
+        # wird deshalb ebenfalls als Runtime-Snapshot transportiert, damit das
+        # Vercel-Dashboard beendete Prozesse nicht weiter als laufend anzeigt.
+        await db.execute(
+            "INSERT INTO equity_snapshots (bot, ts, equity_eur, cash_eur, open_positions, unrealized_pnl_eur, realized_pnl_eur) VALUES (?, ?, 0, 0, 0, 0, 0)",
+            (f"__runtime_stopped_{bot}", now),
+        )
         await db.commit()
 
 

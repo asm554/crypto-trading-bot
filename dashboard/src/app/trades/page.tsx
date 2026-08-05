@@ -1,4 +1,4 @@
-import { BOTS, getAllTrades } from "@/lib/bots";
+import { ACTIVE_BOTS, getAllTrades, isCurrentRoundTrade } from "@/lib/bots";
 import { TradesView } from "@/components/trades-view";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -7,15 +7,15 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Trading-Bots · Trades" };
 
 export default async function TradesPage() {
-  const trades = await getAllTrades();
-  const bots = BOTS.map((b) => ({ key: b.key, nickname: b.nickname }));
+  const trades = (await getAllTrades()).filter(isCurrentRoundTrade);
+  const bots = ACTIVE_BOTS.map((bot) => ({ key: bot.key, nickname: bot.nickname }));
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-bold">Trades</h1>
         <p className="text-sm text-muted-foreground">
-          Alle Trades aller Bots, einschließlich der separaten Freqtrade- und Futures-Instanzen, nach Status und Bot filterbar.
+          Nur die Trades der verbesserten Strategien – nach Status und Bot filterbar.
         </p>
       </div>
 

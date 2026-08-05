@@ -18,10 +18,10 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.addHandler(logging.StreamHandler())
 
-BUDGET = float(os.getenv("ARB_BUDGET", "100"))
+BUDGET = float(os.getenv("ARB_BUDGET", "500"))
 INTERVAL_SEC = int(os.getenv("ARB_INTERVAL_SEC", "45"))
-TICKET_EUR = float(os.getenv("ARB_TICKET_EUR", "25"))
-MIN_NET_PROFIT_EUR = float(os.getenv("ARB_MIN_NET_PROFIT_EUR", "0.05"))
+TICKET_EUR = float(os.getenv("ARB_TICKET_EUR", "125"))
+MIN_NET_PROFIT_EUR = float(os.getenv("ARB_MIN_NET_PROFIT_EUR", "0.25"))
 MAX_TRADES_PER_HOUR = int(os.getenv("ARB_MAX_TRADES_PER_HOUR", "6"))
 PAPER_MODE = os.getenv("ARB_PAPER_MODE", "true").lower() == "true"
 

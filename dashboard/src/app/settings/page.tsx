@@ -5,7 +5,7 @@ import { Activity, Info, Target } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Trading-Bots · Einstellungen" };
+export const metadata = { title: "Aktive Bots · Regeln" };
 
 export default function SettingsPage() {
   const { fees, strategies } = getSettings();
@@ -13,9 +13,9 @@ export default function SettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold">Einstellungen</h1>
+        <h1 className="text-2xl font-bold">Aktive Regeln</h1>
         <p className="text-sm text-muted-foreground">
-          Zum Ansehen. Geändert werden die Werte in der Bot-Konfiguration.
+          Die wichtigsten Regeln aller verbesserten Strategien.
         </p>
       </div>
 
@@ -23,7 +23,8 @@ export default function SettingsPage() {
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
           Alle Bots handeln im <span className="font-medium text-foreground">Papier-Modus</span> — es
-          wird kein echtes Geld eingesetzt. Jeder startet mit 100&nbsp;€ Spielgeld.
+          wird kein echtes Geld eingesetzt. Jeder aktuell laufende Bot startet mit
+          500&nbsp;€. Hebelstrategien bleiben wegen ihres höheren Risikos separat ausgewiesen.
         </p>
       </div>
 
@@ -46,11 +47,11 @@ export default function SettingsPage() {
       </Card>
 
       <div>
-        <h2 className="font-heading text-lg font-bold">Bots im Überblick</h2>
-        <p className="text-sm text-muted-foreground">Einfach erklärt, mit den aktuell wichtigsten Handelsregeln.</p>
+        <h2 className="font-heading text-lg font-bold">Die aktive Auswahl</h2>
+        <p className="text-sm text-muted-foreground">Nur die überarbeiteten Regeln, einfach erklärt.</p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         {strategies.map((s) => (
           <Card key={s.key} className="relative overflow-hidden">
             <div

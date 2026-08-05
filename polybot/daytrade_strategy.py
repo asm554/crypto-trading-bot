@@ -68,7 +68,7 @@ def relative_volume(rows: list[tuple], lookback_bars: int = 20) -> float | None:
 class DaytradeBot:
     def __init__(
         self,
-        initial_capital_eur: float = 100.0,
+        initial_capital_eur: float = 500.0,
         interval_sec: int = 300,
         lookback_hours: int = 4,
         entry_change_pct: float = 3.0,
@@ -143,6 +143,13 @@ class DaytradeBot:
                 self.last_entry_scan = float(raw.get("last_entry_scan", 0.0))
                 self.last_snapshot = float(raw.get("last_snapshot", 0.0))
                 self.trade_count = int(raw.get("trade_count", 0))
+                state_ids = {
+                    int(pos.get("trade_id") or 0)
+                    for pos in self.portfolio.values()
+                    if int(pos.get("trade_id") or 0) > 0
+                }
+                if state_ids != paper_db_module.get_open_trade_ids_by_prefix_sync(PREFIX):
+                    raise ValueError("State und offenes DAY-Ledger weichen ab")
                 logger.info("♻️ Daytrade state geladen: cash=%.2f€, open=%d", self.capital_remaining, len(self.portfolio))
                 return
             except Exception as e:
@@ -161,7 +168,10 @@ class DaytradeBot:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         try:
-            rows = conn.execute("SELECT * FROM paper_trades WHERE market_question LIKE ? ORDER BY id ASC", (f"{PREFIX}%",)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM paper_trades WHERE market_question LIKE ? ESCAPE '\\' ORDER BY id ASC",
+                (paper_db_module.prefix_like_pattern(PREFIX),),
+            ).fetchall()
         finally:
             conn.close()
         for row in rows:
@@ -245,7 +255,10 @@ class DaytradeBot:
             current_value = shares * exit_price
             fee = config.CRYPTO_TAKER_FEE_RATE
             real_pnl = current_value - entry_cost - entry_cost * fee - current_value * fee
-            await resolve_trade(trade_id, exit_price, round(real_pnl, 6))
+            if not await resolve_trade(trade_id, exit_price, round(real_pnl, 6)):
+                self._rebuild_state_from_db()
+                self._save_state()
+                return resolved
             self.capital_remaining += entry_cost + real_pnl
             self.cooldowns[pair] = now + self.cooldown_sec
             self.portfolio.pop(pair, None)
@@ -327,12 +340,13 @@ class DaytradeBot:
         fee = config.CRYPTO_TAKER_FEE_RATE
         for pair, pos in self.portfolio.items():
             snap = self._snapshot_for_pair(pair, ticker)
+            entry_cost = float(pos["cost_basis"])
             if not snap:
+                mtm += entry_cost
                 continue
             # Mark-to-Market simuliert den Verkauf, also zum Bid bewerten.
             current_value = float(pos["shares"]) * float(snap.get("bid") or snap["last_price"])
             sell_fee = current_value * fee
-            entry_cost = float(pos["cost_basis"])
             mtm += current_value - sell_fee
             unrealized += current_value - entry_cost - entry_cost * fee - sell_fee
         realized = await paper_db_module.get_realized_pnl_by_prefix(PREFIX)

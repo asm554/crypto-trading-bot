@@ -7,7 +7,7 @@ import signal
 from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
-from polybot.paper_db import init_db, mark_bot_started
+from polybot.paper_db import init_db, mark_bot_started, mark_bot_stopped
 from polybot.momentum_strategy import MomentumBot
 
 os.makedirs("logs", exist_ok=True)
@@ -18,17 +18,18 @@ logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.addHandler(logging.StreamHandler())
 
-BUDGET = float(os.getenv("MOM_BUDGET", "100"))
+BUDGET = float(os.getenv("MOM_BUDGET", "500"))
 INTERVAL_H = float(os.getenv("MOM_INTERVAL_H", "1"))
 ENTRY_CHANGE_PCT = float(os.getenv("MOM_ENTRY_CHANGE_PCT", "3.0"))
 ENTRY_MAX_CHANGE_PCT = float(os.getenv("MOM_ENTRY_MAX_CHANGE_PCT", "25.0"))
 MIN_VOLUME_EUR = float(os.getenv("MOM_MIN_VOLUME_EUR", "500000"))
-POSITION_EUR = float(os.getenv("MOM_POSITION_EUR", "12"))
+POSITION_EUR = float(os.getenv("MOM_POSITION_EUR", "60"))
 MAX_OPEN_POSITIONS = int(os.getenv("MOM_MAX_OPEN_POSITIONS", "4"))
 TRAILING_STOP_PCT = float(os.getenv("MOM_TRAILING_STOP_PCT", "2.5"))
 HARD_STOP_PCT = float(os.getenv("MOM_HARD_STOP_PCT", "4.0"))
 MAX_HOLD_H = float(os.getenv("MOM_MAX_HOLD_H", "48"))
 COOLDOWN_H = float(os.getenv("MOM_COOLDOWN_H", "6"))
+COOLDOWN_AFTER_LOSS_H = float(os.getenv("MOM_COOLDOWN_AFTER_LOSS_H", "24"))
 PAPER_MODE = os.getenv("MOM_PAPER_MODE", "true").lower() == "true"
 
 async def main():
@@ -46,6 +47,7 @@ async def main():
         hard_stop_pct=HARD_STOP_PCT,
         max_hold_sec=int(MAX_HOLD_H * 3600),
         cooldown_sec=int(COOLDOWN_H * 3600),
+        cooldown_after_loss_sec=int(COOLDOWN_AFTER_LOSS_H * 3600),
         paper_mode=PAPER_MODE,
     )
     stop = asyncio.Event()
@@ -57,6 +59,7 @@ async def main():
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     await bot.maybe_snapshot(force=True)
+    await mark_bot_stopped("momentum")
 
 if __name__ == "__main__":
     asyncio.run(main())

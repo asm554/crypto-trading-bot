@@ -39,7 +39,16 @@ class HodlBot:
         try:
             state = json.loads(self.state_path.read_text()); self.capital_remaining = float(state["capital_remaining"])
             self.portfolio = state.get("portfolio", {}); self.weekly_spend = state.get("weekly_spend", {}); self.last_daily_scan = state.get("last_daily_scan", ""); self.last_snapshot = float(state.get("last_snapshot", 0))
-        except Exception: self._rebuild()
+            state_ids = {
+                int(pos.get("trade_id") or 0)
+                for pos in self.portfolio.values()
+                if int(pos.get("trade_id") or 0) > 0
+            }
+            if state_ids != paper_db_module.get_open_trade_ids_by_prefix_sync(PREFIX):
+                raise ValueError("State und offenes HODL-Ledger weichen ab")
+        except Exception:
+            self._rebuild()
+            self._save()
 
     def _save(self):
         payload = {"capital_remaining": self.capital_remaining, "portfolio": self.portfolio, "weekly_spend": self.weekly_spend, "last_daily_scan": self.last_daily_scan, "last_snapshot": self.last_snapshot}
@@ -47,11 +56,23 @@ class HodlBot:
 
     def _rebuild(self):
         if not self.db_path.exists(): return
+        self.portfolio = {}
+        self.weekly_spend = {}
+        self.last_daily_scan = ""
         realized = open_cost = 0.
         with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row; rows = conn.execute("SELECT * FROM paper_trades WHERE market_question LIKE ?", (f"{PREFIX}%",)).fetchall()
+            conn.row_factory = sqlite3.Row; rows = conn.execute(
+                "SELECT * FROM paper_trades WHERE market_question LIKE ? ESCAPE '\\'",
+                (paper_db_module.prefix_like_pattern(PREFIX),),
+            ).fetchall()
         for row in rows:
             cost = float(row["size"] or 0) * float(row["price"] or 0); label = str(row["market_question"]).removeprefix(PREFIX)
+            timestamp = float(row["timestamp"] or 0)
+            if timestamp > 0:
+                opened = dt.datetime.fromtimestamp(timestamp, dt.timezone.utc)
+                week = opened.strftime("%G-W%V")
+                self.weekly_spend[week] = float(self.weekly_spend.get(week, 0.0)) + cost
+                self.last_daily_scan = max(self.last_daily_scan, opened.date().isoformat())
             if row["resolved_at"] is None:
                 self.portfolio[str(row["id"])] = {"pair": label.split("_")[0], "shares": float(row["size"]), "cost_basis": cost, "trade_id": int(row["id"]), "stage": label.split("_")[-1]}
                 open_cost += cost
@@ -67,8 +88,8 @@ class HodlBot:
         return {"close": closes[-1], "ema50": ema50[-1], "ema200": ema200[-1], "momentum": momentum}
 
     @staticmethod
-    def _phase(market):
-        if market["momentum"] >= 50 or (market["close"] / market["ema50"] - 1) * 100 >= 25: return "overheated"
+    def _phase(market, overheat_momentum_pct=50.0, overheat_ema_pct=25.0):
+        if market["momentum"] >= overheat_momentum_pct or (market["close"] / market["ema50"] - 1) * 100 >= overheat_ema_pct: return "overheated"
         if market["close"] < market["ema200"] or market["momentum"] < 0: return "bear"
         if market["close"] > market["ema50"] > market["ema200"] and market["momentum"] > 0: return "bull"
         return "neutral"
@@ -84,7 +105,9 @@ class HodlBot:
             target = 100 if pos["stage"] == "profit100" else 200 if pos["stage"] == "profit200" else None
             if target is None or (bid / entry - 1) * 100 < target: continue
             value = float(pos["shares"]) * bid * (1 - fee); pnl = value - float(pos["cost_basis"])
-            await resolve_trade(int(pos["trade_id"]), bid, round(pnl, 6)); self.capital_remaining += value; self.portfolio.pop(key); closed.append({"pair": pos["pair"], "reason": f"profit_{target}", "pnl": pnl})
+            if not await resolve_trade(int(pos["trade_id"]), bid, round(pnl, 6)):
+                self._rebuild(); self._save(); return closed
+            self.capital_remaining += value; self.portfolio.pop(key); closed.append({"pair": pos["pair"], "reason": f"profit_{target}", "pnl": pnl})
         self._save(); return closed
 
     async def scan_entries(self):
@@ -93,10 +116,17 @@ class HodlBot:
         self.last_daily_scan = today; week = dt.datetime.now(dt.timezone.utc).strftime("%G-W%V")
         spent = float(self.weekly_spend.get(week, 0)); capacity = min(self.max_weekly_eur - spent, self.capital_remaining - self.cash_reserve_eur)
         if capacity <= 0: self._save(); return []
-        markets = {pair: await self._market(pair) for pair in ALLOCATIONS}; phases = {pair: self._phase(market) if market else "unknown" for pair, market in markets.items()}
+        markets = {pair: await self._market(pair) for pair in ALLOCATIONS}; phases = {
+            pair: self._phase(market, self.overheat_momentum_pct, self.overheat_ema_pct) if market else "unknown"
+            for pair, market in markets.items()
+        }
         weights = {pair: weight for pair, weight in ALLOCATIONS.items() if phases[pair] != "overheated"}
         if phases["XBTEUR"] == "bear":
-            capacity *= self.bear_rate_pct / 100
+            bear_weekly_cap = self.max_weekly_eur * self.bear_rate_pct / 100
+            capacity = min(
+                max(0.0, bear_weekly_cap - spent),
+                max(0.0, self.capital_remaining - self.cash_reserve_eur),
+            )
             weights = {"XBTEUR": 1.0}
         elif any(phase == "bear" for phase in phases.values()): weights = {pair: weight for pair, weight in weights.items() if pair == "XBTEUR"}
         total = sum(weights.values())
