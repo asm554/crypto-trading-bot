@@ -304,6 +304,7 @@ async def drive_ult(bot, sim: MarketSim, clock: Clock, timeline: list[float]):
                     "reason": reason,
                     "setup": p.get("setup"),
                     "regime": p.get("regime"),
+                    "score": p.get("score"),
                     "partials": p.get("partials", 0),
                     "adds": p.get("adds", 0),
                     "hold_h": (clock.now - p["entry_ts"]) / 3600 if p.get("entry_ts") else None,
@@ -315,6 +316,7 @@ async def drive_ult(bot, sim: MarketSim, clock: Clock, timeline: list[float]):
                 "cost": float(o["amount"]),
                 "setup": o.get("setup"),
                 "regime": o.get("regime"),
+                "score": o.get("score"),
                 "partials": 0,
                 "adds": 0,
             }
@@ -379,7 +381,7 @@ def summarize(bot_name: str, args, pairs: list[str], params: dict,
                 "pnl_eur": round(t["pnl"], 4),
                 "hold_h": round(t["hold_h"], 2) if t.get("hold_h") is not None else None,
                 "reason": t["reason"],
-                **({"setup": t["setup"], "partials": t["partials"], "adds": t["adds"]} if "setup" in t else {}),
+                **({"setup": t["setup"], "partials": t["partials"], "adds": t["adds"], "score": t.get("score")} if "setup" in t else {}),
             }
             for t in trades
         ],
@@ -565,6 +567,7 @@ async def run_ult(args) -> dict:
             "loss_pause_sec": 12 * 3600,
             "max_entries_per_day": 3,
             "max_spread_pct": 0.15,
+            "score_scaled_sizing": False,
         }
         # --ult-set KEY=WERT überschreibt einzelne Gates (Typ vom Default geerbt),
         # damit gelockerte Varianten ohne Codeänderung laufen.

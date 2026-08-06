@@ -273,3 +273,19 @@ def test_momentum_exit_cannot_close_a_fresh_mean_reversion_trade(monkeypatch, tm
         assert len(await paper_db.get_open_trades_by_prefix("ULT_")) == 2
 
     asyncio.run(scenario())
+
+
+def test_score_size_scale_is_flat_by_default(tmp_path):
+    bot = UltimateBot(min_score=85, state_path=tmp_path / "state.json")
+    assert bot.score_scaled_sizing is False
+    # Helper itself still scales correctly even when the flag is off — the
+    # flag only gates whether scan_entries() calls it.
+    assert bot._score_size_scale(85) == pytest.approx(0.5)
+    assert bot._score_size_scale(100) == pytest.approx(1.0)
+    assert bot._score_size_scale(92) == pytest.approx(0.5 + 0.5 * 7 / 15)
+
+
+def test_score_size_scale_clamps_outside_range(tmp_path):
+    bot = UltimateBot(min_score=85, state_path=tmp_path / "state.json")
+    assert bot._score_size_scale(60) == pytest.approx(0.5)
+    assert bot._score_size_scale(150) == pytest.approx(1.0)

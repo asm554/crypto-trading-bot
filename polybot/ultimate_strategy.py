@@ -195,6 +195,7 @@ class UltimateBot:
         paper_mode: bool = True,
         snapshot_interval_sec: int = 900,
         state_path: Path | None = None,
+        score_scaled_sizing: bool = False,
     ):
         if not paper_mode:
             raise NotImplementedError("UltimateBot is paper-only")
@@ -207,6 +208,12 @@ class UltimateBot:
         self.reward_risk_ratio = float(reward_risk_ratio)
         self.max_risk_eur = float(max_risk_eur)
         self.max_position_eur = float(max_position_eur)
+        # Research flag (default off, does not affect the live bot): scales
+        # max_risk_eur/max_position_eur linearly with signal score instead of
+        # sizing every qualifying trade identically. 0.5x at min_score, 1.0x
+        # at score 100 — see backtest/results/bitvavo/ULT_SIZING_REPORT for
+        # the preregistered test this was built for.
+        self.score_scaled_sizing = bool(score_scaled_sizing)
         self.max_hold_sec = int(max_hold_sec)
         self.account_loss_limit_pct = float(account_loss_limit_pct)
         self.fee_rate = float(fee_rate)
@@ -437,6 +444,11 @@ class UltimateBot:
         self._save_state()
         return []
 
+    def _score_size_scale(self, score: int) -> float:
+        """0.5x at min_score, 1.0x at score 100, linear in between."""
+        span = max(1, 100 - self.min_score)
+        return 0.5 + 0.5 * max(0.0, min(1.0, (score - self.min_score) / span))
+
     async def scan_entries(self) -> list[dict]:
         now = time.time()
         if self.portfolio or now - self.last_entry_scan < self.interval_sec:
@@ -482,9 +494,10 @@ class UltimateBot:
             natural_target = analysis.get("natural_target")
             if analysis["setup"] == "mean_reversion" and (not natural_target or float(natural_target) < target):
                 continue
+            size_scale = self._score_size_scale(analysis["score"]) if self.score_scaled_sizing else 1.0
             # Half the risk and capital are reserved for one permitted pullback add.
-            initial_risk = self.max_risk_eur / 2
-            position_value = min(initial_risk / unit_risk * price, self.max_position_eur / 2, self.capital_remaining)
+            initial_risk = self.max_risk_eur * size_scale / 2
+            position_value = min(initial_risk / unit_risk * price, self.max_position_eur * size_scale / 2, self.capital_remaining)
             if position_value < MIN_POSITION_EUR:
                 continue
             total_shares = position_value / price
