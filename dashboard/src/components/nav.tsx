@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, SlidersHorizontal, Bot, ArrowLeftRight, Sparkles } from "lucide-react";
+import { LayoutDashboard, SlidersHorizontal, Bot, ArrowLeftRight, Sparkles, PauseCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
   { href: "/", label: "Übersicht", icon: LayoutDashboard },
   { href: "/trades", label: "Trades", icon: ArrowLeftRight },
   { href: "/bots/video", label: "Aktive Bots", icon: Sparkles },
+  { href: "/bots/stopped", label: "Gestoppte Bots", icon: PauseCircle },
   { href: "/settings", label: "Einstellungen", icon: SlidersHorizontal },
 ];
 
