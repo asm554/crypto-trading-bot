@@ -2,15 +2,22 @@ import { BotCard } from "@/components/bot-card";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PauseCircle } from "lucide-react";
-import { getBotSummaries, isBotRunning } from "@/lib/bots";
+import { getBotSummaries, isActiveBotKey, isBotRunning } from "@/lib/bots";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Gestoppte Bots · Bot-Battle" };
 
 export default async function StoppedBotsPage() {
   const bots = await getBotSummaries();
+  // Ein Bot zählt als gestoppt, wenn er nicht zur aktuellen 500-€-Runde
+  // gehört (ACTIVE_BOT_KEYS ist die feste Liste der wirklich laufenden
+  // systemd-Services) ODER wenn er dazugehört, aber gerade kein frisches
+  // Signal meldet. Nur auf isBotRunning zu prüfen reicht nicht: ein
+  // manueller battle_report-Lauf schreibt Snapshots für ALLE Bots (auch
+  // längst gestoppte), was sie für 8 Stunden fälschlich "aktiv" aussehen
+  // ließe.
   const stopped = bots
-    .filter((bot) => !isBotRunning(bot))
+    .filter((bot) => !isActiveBotKey(bot.key) || !isBotRunning(bot))
     .sort((a, b) => a.nickname.localeCompare(b.nickname));
 
   return (
