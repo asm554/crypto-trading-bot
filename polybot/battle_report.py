@@ -24,6 +24,7 @@ DURATION_DAYS = 42
 FEE = config.CRYPTO_TAKER_FEE_RATE
 BOTS = {
     "dca": {"label": "Der Brave", "prefix": "DCA_", "state": DATA_DIR / "dca_state.json"},
+    "dca_core": {"label": "Der Kern", "prefix": "DCACORE_", "state": DATA_DIR / "dca_core_state.json"},
     "momentum": {"label": "Der Zocker", "prefix": "MOM_", "state": DATA_DIR / "momentum_state.json"},
     "meanrev": {"label": "Der Contrarian", "prefix": "REV_", "state": DATA_DIR / "meanrev_state.json"},
     "arb": {"label": "Der Pedant", "prefix": "ARB_", "state": DATA_DIR / "arb_state.json"},

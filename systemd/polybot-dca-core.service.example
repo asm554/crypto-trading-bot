@@ -1,0 +1,24 @@
+[Unit]
+Description=Polybot Core-DCA (Der Kern) - Paper Trading Pilot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/crypto-trading-bot
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_dca_core
+Restart=always
+RestartSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/root/crypto-trading-bot/polybot/data
+Environment=PYTHONUNBUFFERED=1
+Environment=DCACORE_BUDGET=500
+Environment=DCACORE_CASH_RESERVE_EUR=50
+Environment=DCACORE_WEEKLY_TOTAL_EUR=50
+Environment=DCACORE_CIRCUIT_BREAKER_PCT=10
+Environment=DCACORE_PAPER_MODE=true
+[Install]
+WantedBy=multi-user.target
