@@ -130,6 +130,8 @@
 :root,
 .dark {
   --bot-dca: oklch(0.7 0.15 240);
+  --bot-dca-core: oklch(0.74 0.15 210);
+  --bot-dca_core: var(--bot-dca-core);
   --bot-momentum: oklch(0.78 0.16 70);
   --bot-meanrev: oklch(0.7 0.16 320);
   --bot-arb: oklch(0.72 0.17 145);

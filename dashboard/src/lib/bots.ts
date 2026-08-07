@@ -7,7 +7,7 @@ import "server-only";
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
-export type BotKey = "dca" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "candlestick" | "ultimate" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid" | "futures_grid_signal";
+export type BotKey = "dca" | "dca_core" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "candlestick" | "ultimate" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid" | "futures_grid_signal";
 
 type BotMeta = {
   key: BotKey;
@@ -34,6 +34,14 @@ export const BOTS: BotMeta[] = [
     nickname: "Der Stapler",
     prefix: "DCA_",
     tagline: "Kauft regelmäßig kleine Beträge und sitzt Rücksetzer aus.",
+    startingCapitalEur: 500,
+  },
+  {
+    key: "dca_core",
+    name: "Core-DCA (Pilot)",
+    nickname: "Der Kern",
+    prefix: "DCACORE_",
+    tagline: "Kauft nur BTC/ETH im bestätigten Bull-Regime, verkauft alles im Bär und stoppt dauerhaft bei -10 % Drawdown.",
     startingCapitalEur: 500,
   },
   {
@@ -152,6 +160,7 @@ export const BOTS: BotMeta[] = [
 // verständliche Bot-Namen und Farben anzeigen können.
 export const STANDARD_ACTIVE_BOT_KEYS = [
   "dca",
+  "dca_core",
   "momentum",
   "meanrev",
   "daytrade",
@@ -252,6 +261,7 @@ export type TradeDetail = TradeRow & {
 export type EquityPoint = {
   t: number;
   dca: number | null;
+  dca_core: number | null;
   momentum: number | null;
   meanrev: number | null;
   arb: number | null;
@@ -454,6 +464,7 @@ function exitRuleFor(key: BotKey): { feeRate: number | null; targetPct: number |
   const spotFee = 0.004;
   switch (key) {
     case "dca": return { feeRate: spotFee, targetPct: 0.03, label: "+3 % Gewinnziel" };
+    case "dca_core": return { feeRate: spotFee, targetPct: null, label: "Verkauf bei Bär-Regime oder -10 % Drawdown" };
     case "meanrev": return { feeRate: spotFee, targetPct: 0.04, label: "+4 % Gewinnziel" };
     case "futures_grid":
       return { feeRate: 0.0005, targetPct: 0.011, label: "+1,1 % über Durchschnitt" };
@@ -712,7 +723,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, candlestick: null, ultimate: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null, futures_grid_signal: null };
+      { t: bucket, dca: null, dca_core: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, candlestick: null, ultimate: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null, futures_grid_signal: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       const bot = BOTS.find((candidate) => candidate.key === r.bot);
       point[r.bot as BotKey] = round2(
@@ -797,6 +808,21 @@ export function getSettings(): SettingsView {
         { label: "Max. offene Positionen", value: "2" },
         { label: "Max. pro Coin", value: "100 €" },
         { label: "Bar-Reserve", value: "50 €", hint: "Wird nie investiert." },
+      ],
+    },
+    {
+      key: "dca_core",
+      name: "Core-DCA (Pilot)",
+      nickname: "Der Kern",
+      purpose: "Testet einen viel selteneren, regime-gefilterten DCA-Ansatz als Ersatzkandidat für Der Brave -- Vorwärts-Pilot nach einem Backtest-Holdout ohne Trades.",
+      currentBehavior: "Kauft montags je 25 € BTC und ETH, aber nur wenn BTC über EMA200 und EMA50 über EMA200 liegt. Verkauft alles bei bestätigtem Bär-Regime oder stoppt dauerhaft bei -10 % Drawdown vom Hoch.",
+      params: [
+        { label: "Kauf-Intervall", value: "montags, max. 1× pro Woche" },
+        { label: "Wochenbudget", value: "50 €", hint: "25 € BTC + 25 € ETH." },
+        { label: "Bar-Reserve", value: "50 €", hint: "Wird nie investiert." },
+        { label: "Regime-Filter", value: "BTC Close & EMA50 über EMA200 (Bull)", hint: "Kein Kauf in neutraler oder Bär-Phase." },
+        { label: "Bär-Exit", value: "alles verkaufen bei Close & EMA50 unter EMA200" },
+        { label: "Kontoverlust-Sperre", value: "-10 % vom Equity-Hoch -> dauerhafter Stopp", hint: "Kein automatischer Neustart -- entspricht exakt dem getesteten Backtest-Verhalten." },
       ],
     },
     {
