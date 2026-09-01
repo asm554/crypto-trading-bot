@@ -155,6 +155,81 @@ def test_scan_entries_opens_when_all_filters_pass(monkeypatch, tmp_path):
     asyncio.run(scenario())
 
 
+def _build_daily_rows(closes, end_days_ago=2):
+    """Tageskerzen (nur ``close`` wird vom Regime-Filter genutzt), endend
+    ``end_days_ago`` Tage vor jetzt, damit ``closed_ohlc_rows`` sie als
+    abgeschlossen behandelt."""
+    day_sec = 86400
+    last_day = int(time.time() // day_sec) * day_sec - end_days_ago * day_sec
+    n = len(closes)
+    return [
+        (float(last_day - (n - 1 - i) * day_sec), c, c, c, c, c, 100.0)
+        for i, c in enumerate(closes)
+    ]
+
+
+def test_scan_entries_skips_when_below_regime_sma(monkeypatch, tmp_path):
+    db_path = tmp_path / "paper_trades.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def fake_fetch_ticker_data(_pairs):
+        return {"SOLEUR": _valid_ticker(last="20.3", bid="20.2", ask="20.4")}
+
+    # SMA5 der letzten 5 Tagesschlüsse liegt über dem letzten Schluss -> Bärenmarkt-Regime.
+    daily = _build_daily_rows([25.0, 24.0, 23.0, 22.0, 20.0])
+
+    async def fake_fetch_ohlc(_pair, _interval_min=60):
+        if _interval_min == 1440:
+            return daily
+        return _build_ohlc_rows()
+
+    monkeypatch.setattr(surfer_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
+    monkeypatch.setattr(surfer_strategy, "fetch_ohlc", fake_fetch_ohlc)
+
+    async def scenario():
+        await paper_db.init_db()
+        bot = _bind_bot_to_tmp_storage(SurferBot(**_bot_kwargs(regime_sma_period_days=5)), tmp_path)
+        bot.last_entry_scan = 0.0
+
+        opened = await bot.scan_entries()
+
+        assert opened == []
+        assert bot.portfolio == {}
+
+    asyncio.run(scenario())
+
+
+def test_scan_entries_opens_when_above_regime_sma(monkeypatch, tmp_path):
+    db_path = tmp_path / "paper_trades.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def fake_fetch_ticker_data(_pairs):
+        return {"SOLEUR": _valid_ticker(last="20.3", bid="20.2", ask="20.4")}
+
+    # SMA5 der letzten 5 Tagesschlüsse liegt unter dem letzten Schluss -> Aufwärts-Regime.
+    daily = _build_daily_rows([16.0, 17.0, 18.0, 19.0, 20.0])
+
+    async def fake_fetch_ohlc(_pair, _interval_min=60):
+        if _interval_min == 1440:
+            return daily
+        return _build_ohlc_rows()
+
+    monkeypatch.setattr(surfer_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
+    monkeypatch.setattr(surfer_strategy, "fetch_ohlc", fake_fetch_ohlc)
+
+    async def scenario():
+        await paper_db.init_db()
+        bot = _bind_bot_to_tmp_storage(SurferBot(**_bot_kwargs(regime_sma_period_days=5)), tmp_path)
+        bot.last_entry_scan = 0.0
+
+        opened = await bot.scan_entries()
+
+        assert len(opened) == 1
+        assert bot.portfolio["SOLEUR"]["shares"] > 0
+
+    asyncio.run(scenario())
+
+
 def test_scan_entries_skips_without_confirmed_trend(monkeypatch, tmp_path):
     db_path = tmp_path / "paper_trades.db"
     monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
@@ -413,6 +488,40 @@ def test_manage_positions_exits_via_trailing_stop(monkeypatch, tmp_path):
         assert len(resolved) == 1
         assert resolved[0]["reason"] == "trailing_stop"
         assert bot.portfolio == {}
+
+    asyncio.run(scenario())
+
+
+def test_manage_positions_does_not_trigger_trailing_before_activation(monkeypatch, tmp_path):
+    db_path = tmp_path / "paper_trades.db"
+    monkeypatch.setattr(paper_db, "DB_PATH", str(db_path))
+
+    async def fake_fetch_ticker_data(_pairs):
+        return {"SOLEUR": _valid_ticker(last="96")}
+
+    async def fake_fetch_ohlc(_pair, _interval=60):
+        return []  # zu wenig Daten -> kein EMA-Exit-Signal
+
+    monkeypatch.setattr(surfer_strategy, "fetch_ticker_data", fake_fetch_ticker_data)
+    monkeypatch.setattr(surfer_strategy, "fetch_ohlc", fake_fetch_ohlc)
+
+    async def scenario():
+        await paper_db.init_db()
+        # Aktivierungsschwelle 3%, Peak nur 1% über Entry: der 3%-Trailing-
+        # Stop (peak*0.97 = 97.97) wäre ohne Gate hier gerissen (bid 96), darf
+        # aber noch nicht aktiv sein. Der weite ATR-Stop (80) bleibt der
+        # einzige Schutz, also kein Exit.
+        bot = _bind_bot_to_tmp_storage(
+            SurferBot(**_bot_kwargs(trailing_stop_pct=3.0, trailing_activation_pct=3.0)), tmp_path
+        )
+        trade_id = await paper_db.log_paper_trade("SURF_SOLEUR", "buy", 0.01, 100.0, 0.05, "paper")
+        bot.capital_remaining = 99.0
+        bot.portfolio["SOLEUR"] = {"shares": 0.01, "cost_basis": 1.0, "entry_price": 100.0, "entry_ts": time.time(), "peak_price": 101.0, "stop_price": 80.0, "trade_id": trade_id}
+
+        resolved = await bot.manage_positions()
+
+        assert resolved == []
+        assert "SOLEUR" in bot.portfolio
 
     asyncio.run(scenario())
 

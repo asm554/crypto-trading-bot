@@ -3,7 +3,9 @@
 Paper-only Kraken SOL/EUR Strategie. Handelt ausschließlich SOL/EUR und hält
 maximal eine Position gleichzeitig. Einstieg erfordert gleichzeitig einen
 bestätigten 4h-Aufwärtstrend, EMA20 über EMA50, einen Ausbruch über das
-20h-Hoch und erhöhtes Volumen. Exit ist ein ATR-Stop plus Trailing-Stop
+20h-Hoch und erhöhtes Volumen sowie optional (regime_sma_period_days > 0)
+einen Kurs über einem langfristigen Tages-SMA als Regime-Filter gegen
+Bärenmarkt-Rallyes. Exit ist ein ATR-Stop plus Trailing-Stop
 ("wer zuerst greift, gewinnt" – der jeweils höhere der beiden Preise) sowie
 ein EMA-Trendbruch-Exit und ein 7-Tage-Zeitlimit. Kein Order-Execution-Code,
 keine Live-Order-Unterstützung.
@@ -103,6 +105,7 @@ class SurferBot:
         interval_sec: int = 3600,
         trend_lookback_hours: int = 4,
         min_trend_pct: float = 0.0,
+        regime_sma_period_days: int = 0,
         breakout_lookback_hours: int = 20,
         ema_fast_period: int = 20,
         ema_slow_period: int = 50,
@@ -112,6 +115,7 @@ class SurferBot:
         max_risk_eur: float = 0.50,
         max_position_eur: float = 25.0,
         trailing_stop_pct: float = 3.0,
+        trailing_activation_pct: float = 0.0,
         max_hold_sec: int = 7 * 24 * 3600,
         loss_streak_limit: int = 3,
         loss_pause_sec: int = 24 * 3600,
@@ -124,6 +128,7 @@ class SurferBot:
         self.interval_sec = int(interval_sec)
         self.trend_lookback_hours = int(trend_lookback_hours)
         self.min_trend_pct = float(min_trend_pct)
+        self.regime_sma_period_days = int(regime_sma_period_days)
         self.breakout_lookback_hours = int(breakout_lookback_hours)
         self.ema_fast_period = int(ema_fast_period)
         self.ema_slow_period = int(ema_slow_period)
@@ -133,6 +138,7 @@ class SurferBot:
         self.max_risk_eur = float(max_risk_eur)
         self.max_position_eur = float(max_position_eur)
         self.trailing_stop_pct = float(trailing_stop_pct)
+        self.trailing_activation_pct = float(trailing_activation_pct)
         self.max_hold_sec = int(max_hold_sec)
         self.loss_streak_limit = int(loss_streak_limit)
         self.loss_pause_sec = int(loss_pause_sec)
@@ -294,14 +300,20 @@ class SurferBot:
         peak = max(float(pos.get("peak_price") or entry), last)
         pos["peak_price"] = peak
         atr_stop_price = float(pos.get("stop_price") or 0.0)
-        trailing_stop_price = peak * (1 - self.trailing_stop_pct / 100)
-        # ATR-Stop schützt initial, Trailing-Stop sichert Gewinne – der jeweils
-        # höhere (engere) Preis gewinnt, analog zur Floor/Trailing-Logik von
+        # Trailing-Stop erst aktiv, nachdem der Preis um trailing_activation_pct
+        # über den Entry gestiegen ist – sonst würde ein gewöhnlicher Pullback
+        # direkt nach dem Breakout-Einstieg als "Trailing-Stop" ausgelöst,
+        # bevor sich überhaupt ein Gewinn aufgebaut hat. Bis zur Aktivierung
+        # schützt ausschließlich der initiale ATR-Stop. Danach gewinnt der
+        # jeweils höhere (engere) Preis, analog zur Floor/Trailing-Logik von
         # "Der Onchain" (memecoin_strategy.py).
+        activation_price = entry * (1 + self.trailing_activation_pct / 100)
+        trailing_active = peak >= activation_price
+        trailing_stop_price = peak * (1 - self.trailing_stop_pct / 100) if trailing_active else 0.0
         effective_stop = max(atr_stop_price, trailing_stop_price)
         age = now - float(pos.get("entry_ts") or now)
         if not reason and bid <= effective_stop:
-            reason = "trailing_stop" if trailing_stop_price >= atr_stop_price else "atr_stop"
+            reason = "trailing_stop" if trailing_active and trailing_stop_price >= atr_stop_price else "atr_stop"
         elif not reason and await self._ema_exit_signal():
             reason = "ema_exit"
         elif not reason and age >= self.max_hold_sec:
@@ -383,6 +395,25 @@ class SurferBot:
             logger.info("⏭️ SURF %s: kein bestätigter %dh-Aufwärtstrend (%s)", self.pair, self.trend_lookback_hours, ch_trend)
             self._save_state()
             return []
+
+        # Regime-Filter: der 4h-Trendfilter ist zu kurzsichtig, um einen
+        # übergeordneten Bärenmarkt zu erkennen – darin sind die meisten
+        # kurzfristigen Ausbrüche keine echten Trendwenden, sondern
+        # Bärenmarkt-Rallyes. Kraken liefert stündliche Kerzen nur für die
+        # letzten ~30 Tage, daher eine zweite, unabhängige Tages-Serie
+        # abfragen (720 Tageskerzen ≈ 2 Jahre reichen für einen 100-Tage-SMA).
+        if self.regime_sma_period_days > 0:
+            daily_rows = closed_ohlc_rows(await fetch_ohlc(self.pair, 1440), 1440, now)
+            if len(daily_rows) < self.regime_sma_period_days:
+                logger.info("⏭️ SURF %s: zu wenig Tagesdaten für Regime-SMA%d (%d < %d)", self.pair, self.regime_sma_period_days, len(daily_rows), self.regime_sma_period_days)
+                self._save_state()
+                return []
+            regime_closes = [r[4] for r in daily_rows][-self.regime_sma_period_days:]
+            regime_sma = sum(regime_closes) / len(regime_closes)
+            if regime_closes[-1] <= regime_sma:
+                logger.info("⏭️ SURF %s: Kurs unter Regime-SMA%d (%.4f <= %.4f) – Bärenmarkt, kein Long-Entry", self.pair, self.regime_sma_period_days, regime_closes[-1], regime_sma)
+                self._save_state()
+                return []
 
         ema_fast = ema_series(closes, self.ema_fast_period)
         ema_slow = ema_series(closes, self.ema_slow_period)
