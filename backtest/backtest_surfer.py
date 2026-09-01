@@ -110,6 +110,25 @@ def build_ticker(price: float, volume_eur: float, spread_pct: float) -> dict:
     }
 
 
+def build_daily_candles(hourly_rows: list[tuple]) -> list[tuple]:
+    """Resampled Tageskerzen aus stündlichen Kraken-Tupeln — für den
+    Regime-SMA-Filter, der live über ein zweites ``fetch_ohlc(pair, 1440)``
+    läuft statt über die stündliche Serie."""
+    days: dict[int, list] = {}
+    for ts, o, h, l, c, _vwap, v in hourly_rows:
+        day_ts = int(ts // 86400) * 86400
+        candle = days.get(day_ts)
+        if candle is None:
+            days[day_ts] = [day_ts, o, h, l, c, c, v]
+        else:
+            candle[2] = max(candle[2], h)
+            candle[3] = min(candle[3], l)
+            candle[4] = c
+            candle[5] = c
+            candle[6] += v
+    return [tuple(days[ts]) for ts in sorted(days)]
+
+
 def max_drawdown_pct(values: list[float]) -> float:
     peak = None
     worst = 0.0
@@ -126,6 +145,12 @@ async def run_backtest(args) -> dict:
     steps = [r for r in load_candles(args.pair, 15) if start_ts <= r[0] < end_ts]
     if not hourly or not steps:
         raise SystemExit(f"Keine Kerzen im Zeitraum {args.start}..{args.end or 'jetzt'}")
+    # Für den Regime-SMA-Filter wird Vorlauf-Historie vor start_ts gebraucht
+    # (z.B. 100 Tage), sonst wäre die SMA in den ersten Wochen des
+    # Backtest-Fensters mangels Daten künstlich ungefüllt. Deshalb hier auf
+    # der kompletten verfügbaren Historie bis end_ts resamplen, nicht nur
+    # auf dem [start_ts, end_ts)-Fenster wie ``hourly``/``steps``.
+    daily = build_daily_candles([r for r in load_candles(args.pair, 60) if r[0] < end_ts])
 
     span_days = (steps[-1][0] - steps[0][0]) / 86400
     print(f"📊 Backtest {args.pair} | {args.start} bis {args.end or 'jetzt'} "
@@ -150,6 +175,8 @@ async def run_backtest(args) -> dict:
         async def fake_fetch_ohlc(_pair, _interval_min=60):
             # Nur was zur simulierten Zeit existierte — kein Blick nach vorn.
             # ``closed_ohlc_rows`` in der Strategie wirft die laufende Kerze weg.
+            if _interval_min == 1440:
+                return [r for r in daily if r[0] <= clock.now]
             return [r for r in hourly if r[0] <= clock.now]
 
         surfer_strategy.time = clock
@@ -160,12 +187,14 @@ async def run_backtest(args) -> dict:
             initial_capital_eur=args.budget,
             trend_lookback_hours=args.trend_lookback_h,
             min_trend_pct=args.min_trend_pct,
+            regime_sma_period_days=args.regime_sma_period_days,
             breakout_lookback_hours=args.breakout_lookback_h,
             atr_stop_multiplier=args.atr_stop_multiplier,
             volume_multiplier=args.volume_multiplier,
             max_risk_eur=args.max_risk_eur,
             max_position_eur=args.max_position_eur,
             trailing_stop_pct=args.trailing_stop_pct,
+            trailing_activation_pct=args.trailing_activation_pct,
             max_hold_sec=int(args.max_hold_h * 3600),
             loss_streak_limit=args.loss_streak_limit,
             loss_pause_sec=int(args.loss_pause_h * 3600),
@@ -262,8 +291,10 @@ def summarize(args, bot, trades, equity_curve, final, pending, span_days) -> dic
         "exit_reasons": reasons,
         "params": {
             "trend_lookback_h": args.trend_lookback_h, "min_trend_pct": args.min_trend_pct,
+            "regime_sma_period_days": args.regime_sma_period_days,
             "breakout_lookback_h": args.breakout_lookback_h, "atr_stop_multiplier": args.atr_stop_multiplier,
             "volume_multiplier": args.volume_multiplier, "trailing_stop_pct": args.trailing_stop_pct,
+            "trailing_activation_pct": args.trailing_activation_pct,
             "max_risk_eur": args.max_risk_eur, "max_position_eur": args.max_position_eur,
             "max_hold_h": args.max_hold_h, "loss_streak_limit": args.loss_streak_limit,
             "spread_pct": args.spread_pct, "taker_fee_rate": config.CRYPTO_TAKER_FEE_RATE,
@@ -318,12 +349,14 @@ def main() -> int:
     p.add_argument("--budget", type=float, default=500.0)
     p.add_argument("--trend-lookback-h", type=int, default=4)
     p.add_argument("--min-trend-pct", type=float, default=0.0)
+    p.add_argument("--regime-sma-period-days", type=int, default=0)
     p.add_argument("--breakout-lookback-h", type=int, default=20)
     p.add_argument("--atr-stop-multiplier", type=float, default=2.0)
     p.add_argument("--volume-multiplier", type=float, default=1.2)
     p.add_argument("--max-risk-eur", type=float, default=2.5)
     p.add_argument("--max-position-eur", type=float, default=125.0)
     p.add_argument("--trailing-stop-pct", type=float, default=3.0)
+    p.add_argument("--trailing-activation-pct", type=float, default=0.0)
     p.add_argument("--max-hold-h", type=float, default=168.0)
     p.add_argument("--loss-streak-limit", type=int, default=3)
     p.add_argument("--loss-pause-h", type=float, default=24.0)
