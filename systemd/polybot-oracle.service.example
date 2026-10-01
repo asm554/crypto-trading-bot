@@ -1,0 +1,29 @@
+[Unit]
+Description=Polybot Oracle (Der Orakler) — Paper, nur lesend — Paper Trading
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/crypto-trading-bot
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_oracle
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+# TYPESAFE_API_KEY gehört in polybot/.env, nicht in diese Datei.
+Environment=ORA_BUDGET=500
+Environment=ORA_SCAN_INTERVAL_SEC=600
+Environment=ORA_MIN_VOLUME_24H=20000
+Environment=ORA_MAX_SPREAD=0.04
+Environment=ORA_MIN_EDGE=0.15
+Environment=ORA_MAX_JUDGEMENTS_PER_CYCLE=10
+Environment=ORA_POSITION_SIZE=10
+Environment=ORA_MAX_OPEN_POSITIONS=8
+Environment=ORA_MAX_TRADES_PER_DAY=5
+Environment=ORA_TAKER_FEE_RATE=0.07
+Environment=ORA_ACCOUNT_LOSS_LIMIT_PCT=15.0
+Environment=ORA_PAPER_MODE=true
+
+[Install]
+WantedBy=multi-user.target
