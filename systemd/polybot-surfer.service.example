@@ -31,6 +31,8 @@ Environment=SURF_LOSS_STREAK_LIMIT=3
 Environment=SURF_LOSS_PAUSE_H=24
 Environment=SURF_ACCOUNT_LOSS_LIMIT_PCT=10.0
 Environment=SURF_PAPER_MODE=true
+Environment=SURF_JEV_ENABLED=false
+Environment=SURF_JEV_MIN_PROB=0.6
 
 [Install]
 WantedBy=multi-user.target
