@@ -8,6 +8,7 @@ from polybot.cli_env import apply_cli_env
 apply_cli_env()
 
 from polybot.paper_db import init_db, mark_bot_started, mark_bot_stopped
+from polybot.jev_gate import JevGate
 from polybot.surfer_strategy import SurferBot
 
 os.makedirs("logs", exist_ok=True)
@@ -38,6 +39,8 @@ LOSS_STREAK_LIMIT = int(os.getenv("SURF_LOSS_STREAK_LIMIT", "3"))
 LOSS_PAUSE_H = float(os.getenv("SURF_LOSS_PAUSE_H", "24"))
 ACCOUNT_LOSS_LIMIT_PCT = float(os.getenv("SURF_ACCOUNT_LOSS_LIMIT_PCT", "10.0"))
 PAPER_MODE = os.getenv("SURF_PAPER_MODE", "true").lower() == "true"
+JEV_ENABLED = os.getenv("SURF_JEV_ENABLED", "false").lower() == "true"
+JEV_MIN_PROB = float(os.getenv("SURF_JEV_MIN_PROB", "0.6"))
 
 async def main():
     await init_db()
@@ -63,6 +66,7 @@ async def main():
         loss_pause_sec=int(LOSS_PAUSE_H * 3600),
         account_loss_limit_pct=ACCOUNT_LOSS_LIMIT_PCT,
         paper_mode=PAPER_MODE,
+        jev_gate=JevGate(min_prob=JEV_MIN_PROB) if JEV_ENABLED else None,
     )
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

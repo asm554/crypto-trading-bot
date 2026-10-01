@@ -7,7 +7,7 @@ import "server-only";
 const SUPABASE_URL = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? "";
 
-export type BotKey = "dca" | "dca_core" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "candlestick" | "ultimate" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid" | "futures_grid_signal";
+export type BotKey = "dca" | "dca_core" | "momentum" | "meanrev" | "arb" | "daytrade" | "memecoin" | "pumpfun" | "pumpfun_v2" | "surfer" | "news" | "oracle" | "candlestick" | "ultimate" | "scout" | "hodl" | "freqtrade" | "futures" | "futures_grid" | "futures_grid_signal";
 
 type BotMeta = {
   key: BotKey;
@@ -109,6 +109,22 @@ export const BOTS: BotMeta[] = [
     startingCapitalEur: 500,
   },
   {
+    key: "news",
+    name: "News-Trading (Jev)",
+    nickname: "Der Reporter",
+    prefix: "NEWS_",
+    tagline: "Liest Krypto-Schlagzeilen, lässt Jev sie bewerten und handelt nur kurze SOL/BTC-Longs bei klarer Einschätzung.",
+    startingCapitalEur: 500,
+  },
+  {
+    key: "oracle",
+    name: "Prediction Markets (Jev)",
+    nickname: "Der Orakler",
+    prefix: "ORA_",
+    tagline: "Rein simulierter Forschungsbot: Jev schätzt Polymarket-Wahrscheinlichkeiten mit News-Kontext, ohne Konto, Wallet oder Echtgeld.",
+    startingCapitalEur: 500,
+  },
+  {
     key: "candlestick",
     name: "Candlestick-Scoring",
     nickname: "Der Kerzenreiter",
@@ -168,6 +184,8 @@ export const STANDARD_ACTIVE_BOT_KEYS = [
   "surfer",
   "ultimate",
   "pumpfun",
+  "news",
+  "oracle",
 ] as const satisfies readonly BotKey[];
 export const LEVERAGED_ACTIVE_BOT_KEYS = [
   "futures_grid_signal",
@@ -270,6 +288,8 @@ export type EquityPoint = {
   pumpfun: number | null;
   pumpfun_v2: number | null;
   surfer: number | null;
+  news: number | null;
+  oracle: number | null;
   candlestick: number | null;
   ultimate: number | null;
   scout: number | null;
@@ -478,6 +498,8 @@ function exitRuleFor(key: BotKey): { feeRate: number | null; targetPct: number |
     case "momentum": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −2,5 % vom Hoch" };
     case "daytrade": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −1,5 % vom Hoch" };
     case "surfer": return { feeRate: spotFee, targetPct: null, label: "Trailing-Stop −3 % vom Hoch" };
+    case "news": return { feeRate: spotFee, targetPct: null, label: "Stop −1,5 % · Trailing −1 % · max. 2 Std." };
+    case "oracle": return { feeRate: null, targetPct: null, label: "Auflösung, Stop −40 % oder Take-Profit" };
     case "candlestick": return { feeRate: null, targetPct: null, label: "ATR-Trailing · kein fixer Exit" };
     case "ultimate": return { feeRate: 0.008, targetPct: null, label: "Netto-2R-Teilgewinn · ATR-Trailing" };
     case "hodl": return { feeRate: spotFee, targetPct: null, label: "Langfristig halten · kein Exit" };
@@ -491,7 +513,7 @@ async function fetchCurrentPriceForBot(bot: BotMeta, trade: RawTrade, pair: stri
     const rest = trade.market_question.slice(bot.prefix.length);
     return fetchFuturesCurrentPrice(rest.split("_").slice(0, 2).join("_"));
   }
-  if (["memecoin", "pumpfun", "pumpfun_v2", "scout"].includes(bot.key)) return null;
+  if (["memecoin", "pumpfun", "pumpfun_v2", "scout", "oracle"].includes(bot.key)) return null;
   if (bot.key === "candlestick") return fetchCandlestickCurrentPrice();
   return fetchSpotCurrentPrice(pair);
 }
@@ -655,7 +677,7 @@ export async function getTradeDetail(id: number): Promise<TradeDetail | null> {
     ]);
     priceSource = "Kraken Futures · Mark Price · 1h";
     currentPriceSource = currentPrice == null ? null : "Kraken Futures · Live Mark Price";
-  } else if (!["memecoin", "pumpfun", "pumpfun_v2", "scout"].includes(meta?.key ?? "")) {
+  } else if (!["memecoin", "pumpfun", "pumpfun_v2", "scout", "oracle"].includes(meta?.key ?? "")) {
     [priceSeries, currentPrice] = await Promise.all([
       fetchSpotPriceSeries(row.pair, raw.timestamp - 6 * 3600),
       fetchSpotCurrentPrice(row.pair),
@@ -723,7 +745,7 @@ export async function getEquitySeries(): Promise<EquityPoint[]> {
     const bucket = Math.round(num(r.ts) / 60) * 60; // auf Minute runden
     const point =
       byTime.get(bucket) ??
-      { t: bucket, dca: null, dca_core: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, candlestick: null, ultimate: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null, futures_grid_signal: null };
+      { t: bucket, dca: null, dca_core: null, momentum: null, meanrev: null, arb: null, daytrade: null, memecoin: null, pumpfun: null, pumpfun_v2: null, surfer: null, news: null, oracle: null, candlestick: null, ultimate: null, scout: null, hodl: null, freqtrade: null, futures: null, futures_grid: null, futures_grid_signal: null };
     if (BOTS.some((b) => b.key === r.bot)) {
       const bot = BOTS.find((candidate) => candidate.key === r.bot);
       point[r.bot as BotKey] = round2(
@@ -966,6 +988,43 @@ export function getSettings(): SettingsView {
         { label: "Max. Positionsgröße", value: "125 €" },
         { label: "Verlustpause", value: "24 Std. nach 3 Verlusten in Folge" },
         { label: "Kontoverlust-Sperre", value: "−10 %", hint: "Ab dieser Verlustgrenze keine neuen Einstiege, offene Positionen laufen weiter." },
+      ],
+    },
+    {
+      key: "news",
+      name: "News-Trading (Jev)",
+      nickname: "Der Reporter",
+      purpose: "Testet, ob eine schnelle KI-Bewertung neuer Krypto-Schlagzeilen kurze SOL/BTC-Bewegungen vorhersagt.",
+      currentBehavior: "Jev bewertet jede neue Meldung (max. 15 Min. alt). Ohne klare Einschätzung oder bei Jev-Ausfall passiert nichts.",
+      params: [
+        { label: "Datenquelle", value: "Öffentliche RSS-Feeds (Cointelegraph, Decrypt, The Block, CoinDesk)" },
+        { label: "Märkte", value: "SOL/EUR, BTC/EUR (nur Long)" },
+        { label: "Einstieg", value: "Neu ≥ 70 % · bullisch ≥ 70 % · bärisch ≤ 30 %", hint: "Jev beantwortet getrennte Ja/Nein-Fragen mit Wahrscheinlichkeit." },
+        { label: "Positionsgröße", value: "25 €", hint: "Maximal 2 offene Positionen." },
+        { label: "Stop", value: "−1,5 %, danach Trailing −1 %" },
+        { label: "Weitere Exits", value: "Neue bärische Meldung, max. 2 Std. Haltedauer" },
+        { label: "Tageslimit", value: "maximal 6 neue Positionen" },
+        { label: "Verlustpause", value: "6 Std. nach 3 Verlusten in Folge" },
+        { label: "Kontoverlust-Sperre", value: "−10 %" },
+        { label: "Modus", value: "100 % Paper-Trading" },
+      ],
+    },
+    {
+      key: "oracle",
+      name: "Prediction Markets (Jev)",
+      nickname: "Der Orakler",
+      purpose: "Forschungsfrage: Schätzt Jev mit News-Kontext Ereigniswahrscheinlichkeiten besser als der Markt?",
+      currentBehavior: "Liest nur öffentliche Polymarket-Daten. Es gibt keinen Order-, Wallet- oder Konto-Zugriff, alles ist simuliert.",
+      params: [
+        { label: "Datenquelle", value: "Polymarket Gamma API (nur lesend)" },
+        { label: "Marktfilter", value: "Ja/Nein-Märkte · Volumen ≥ 20.000 · Spread ≤ 4 Cent · Preis 10–90 %" },
+        { label: "Kontext", value: "Passende News-Schlagzeilen", hint: "Ohne passende Schlagzeile wird nie gehandelt." },
+        { label: "Einstieg", value: "Jev-Wahrscheinlichkeit ≥ 15 Prozentpunkte vom Marktpreis", hint: "Jev sieht den Marktpreis nicht." },
+        { label: "Positionsgröße", value: "10 €", hint: "Maximal 8 offene Positionen, 5 neue pro Tag." },
+        { label: "Gebühr", value: "7 % × p × (1−p)", hint: "Konservative Annahme für Krypto-Märkte." },
+        { label: "Exits", value: "Marktauflösung, Stop −40 %, Take-Profit" },
+        { label: "Kontoverlust-Sperre", value: "−15 %" },
+        { label: "Modus", value: "100 % Paper-Trading, kein Echtgeld" },
       ],
     },
     {

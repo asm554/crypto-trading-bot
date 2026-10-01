@@ -40,6 +40,18 @@ const PROFILES: Partial<Record<BotKey, BotResearchProfile>> = {
     evidence: "Schwache Brutto-Edge, aber Gebührenhürde nicht erreicht.",
     nextStep: "Nur Kosten- oder Ausführungshypothesen weiter prüfen.",
   },
+  news: {
+    status: "open",
+    label: "Vorwärtstest",
+    evidence: "Kein Backtest möglich: historische Schlagzeilen und Jev-Antworten sind nicht reproduzierbar.",
+    nextStep: "Mindestens 2 Wochen live im Paper-Modus, Bewertung nach Netto-Equity.",
+  },
+  oracle: {
+    status: "open",
+    label: "Vorwärtstest",
+    evidence: "Reiner Forschungsbot ohne Echtgeld. Ob Jev den Markt schlägt, ist offen.",
+    nextStep: "Auflösungen abwarten und Jev-Schätzungen gegen Marktpreise auswerten.",
+  },
   ultimate: {
     status: "research",
     label: "Forschung",

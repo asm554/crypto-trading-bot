@@ -22,6 +22,7 @@ import aiohttp
 
 from polybot import config
 from polybot import paper_db as paper_db_module
+from polybot.jev_gate import build_state as build_jev_state
 from polybot.dca_strategy import KRAKEN_PUBLIC, PAIR_MAP, extract_quote, fetch_ticker_data
 from polybot.paper_db import log_equity_snapshot, log_paper_trade, resolve_trade
 
@@ -122,6 +123,7 @@ class SurferBot:
         account_loss_limit_pct: float = 10.0,
         paper_mode: bool = True,
         snapshot_interval_sec: int = 3600,
+        jev_gate=None,
     ):
         self.initial_capital_eur = float(initial_capital_eur)
         self.capital_remaining = float(initial_capital_eur)
@@ -145,6 +147,8 @@ class SurferBot:
         self.account_loss_limit_pct = float(account_loss_limit_pct)
         self.paper_mode = bool(paper_mode)
         self.snapshot_interval_sec = int(snapshot_interval_sec)
+        # Optionaler Veto-Filter (polybot.jev_gate.JevGate); None = Verhalten unverändert.
+        self.jev_gate = jev_gate
         if not self.paper_mode:
             logger.warning("Surfer live mode is intentionally not implemented")
             raise NotImplementedError("SurferBot is paper-only")
@@ -442,6 +446,20 @@ class SurferBot:
             logger.info("⏭️ SURF %s: ATR nicht berechenbar", self.pair)
             self._save_state()
             return []
+
+        if self.jev_gate is not None:
+            jev_state = build_jev_state(
+                self.pair, float(snap.get("ask") or snap["last_price"]), ch_trend, self.trend_lookback_hours,
+                ema_fast[-1], ema_slow[-1], breakout_level,
+                volumes[-1] / avg_volume, atr,
+            )
+            jev_ok, jev_prob = await self.jev_gate.allows_entry(jev_state)
+            if not jev_ok:
+                logger.info("⏭️ SURF %s: Jev-Veto (P=%.2f < %.2f)", self.pair, jev_prob, self.jev_gate.min_prob)
+                self._save_state()
+                return []
+            if jev_prob is not None:
+                logger.info("✅ SURF %s: Jev bestätigt (P=%.2f)", self.pair, jev_prob)
 
         # Signal aus der abgeschlossenen Kerze, Fill zum aktuellen Ask.
         last = float(snap["last_price"])
