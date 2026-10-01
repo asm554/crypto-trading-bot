@@ -146,7 +146,7 @@ class NewsBot:
         poll_interval_sec: int = 60,
         max_headline_age_sec: int = 900,
         min_choice_prob: float = 0.6,
-        min_bullish: float = 0.75,
+        min_bullish: float = 0.70,
         min_new: float = 0.7,
         max_bearish: float = 0.3,
         position_eur: float = 25.0,

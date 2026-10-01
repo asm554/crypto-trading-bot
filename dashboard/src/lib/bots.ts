@@ -999,7 +999,7 @@ export function getSettings(): SettingsView {
       params: [
         { label: "Datenquelle", value: "Öffentliche RSS-Feeds (Cointelegraph, Decrypt, The Block, CoinDesk)" },
         { label: "Märkte", value: "SOL/EUR, BTC/EUR (nur Long)" },
-        { label: "Einstieg", value: "Neu ≥ 70 % · bullisch ≥ 75 % · bärisch ≤ 30 %", hint: "Jev beantwortet getrennte Ja/Nein-Fragen mit Wahrscheinlichkeit." },
+        { label: "Einstieg", value: "Neu ≥ 70 % · bullisch ≥ 70 % · bärisch ≤ 30 %", hint: "Jev beantwortet getrennte Ja/Nein-Fragen mit Wahrscheinlichkeit." },
         { label: "Positionsgröße", value: "25 €", hint: "Maximal 2 offene Positionen." },
         { label: "Stop", value: "−1,5 %, danach Trailing −1 %" },
         { label: "Weitere Exits", value: "Neue bärische Meldung, max. 2 Std. Haltedauer" },

@@ -92,6 +92,20 @@ def test_evaluate_bullish_entry():
     assert (pair, direction) == ("SOLEUR", "bullish")
 
 
+def test_evaluate_with_real_jev_values_at_default_threshold():
+    # Gemessene Live-Werte (Test 2026-10-01): eindeutige Meldungen lagen bei 0.74.
+    bull = _answers(bullish=0.74, bearish=0.16)
+    bear = _answers(asset="BTC", bullish=0.14, bearish=0.74)
+    assert evaluate(bull, 0.6, 0.70, 0.7, 0.3)[:2] == ("SOLEUR", "bullish")
+    assert evaluate(bear, 0.6, 0.70, 0.7, 0.3)[:2] == ("XBTEUR", "bearish")
+    assert evaluate(bull, 0.6, 0.75, 0.7, 0.3)[1] is None
+
+
+def test_default_min_bullish_is_070():
+    import inspect
+    assert inspect.signature(NewsBot.__init__).parameters["min_bullish"].default == 0.70
+
+
 def test_evaluate_btc_and_bearish():
     assert evaluate(_answers(asset="BTC"), 0.6, 0.75, 0.7, 0.3)[0] == "XBTEUR"
     pair, direction, _ = evaluate(_answers(bullish=0.05, bearish=0.9), 0.6, 0.75, 0.7, 0.3)
