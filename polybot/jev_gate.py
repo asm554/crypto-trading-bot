@@ -87,3 +87,23 @@ class JevGate:
             logger.warning("JEV: Wahrscheinlichkeit %r außerhalb 0..1 – fail-open", prob)
             return True, None
         return prob >= self.min_prob, prob
+
+    async def ask(self, state: str | dict, questions: dict) -> dict | None:
+        """Mehrere Fragen in einem Aufruf. Gibt ``answers`` zurück oder None bei Fehler.
+
+        Anders als ``allows_entry`` ist das fail-closed gedacht: Wer Jev als
+        Signalquelle nutzt, darf bei Ausfall nicht handeln.
+        """
+        if not self.api_key:
+            logger.warning("JEV: kein TYPESAFE_API_KEY – keine Abfrage möglich")
+            return None
+        payload = {"state": state, "model": self.model, "questions": questions}
+        try:
+            data = await self._post(payload)
+            answers = data["answers"]
+            if not isinstance(answers, dict):
+                raise ValueError("answers ist kein Objekt")
+            return answers
+        except Exception as exc:
+            logger.warning("JEV: Abfrage fehlgeschlagen (%s)", exc)
+            return None

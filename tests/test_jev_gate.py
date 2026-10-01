@@ -120,3 +120,15 @@ def test_surfer_enters_when_jev_down(monkeypatch, tmp_path):
 
     opened, _bot = _scan(monkeypatch, tmp_path, _gate(post))
     assert len(opened) == 1
+
+
+def test_ask_returns_answers_and_fails_closed():
+    async def ok(_payload):
+        return {"answers": {"q": {"type": "noul", "noul": 0.5}}}
+
+    async def boom(_payload):
+        raise TimeoutError("t")
+
+    assert asyncio.run(_gate(ok).ask({"a": 1}, {"q": {}})) == {"q": {"type": "noul", "noul": 0.5}}
+    assert asyncio.run(_gate(boom).ask({"a": 1}, {"q": {}})) is None
+    assert asyncio.run(JevGate(api_key="").ask("s", {})) is None
