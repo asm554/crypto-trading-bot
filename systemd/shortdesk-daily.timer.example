@@ -1,0 +1,10 @@
+[Unit]
+Description=Shortdesk daily Timer
+
+[Timer]
+OnCalendar=*-*-* 00:02:00 UTC
+Persistent=true
+Unit=shortdesk@daily.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Shortdesk weekly Timer
+
+[Timer]
+OnCalendar=Sun *-*-* 18:05:00 UTC
+Persistent=true
+Unit=shortdesk@weekly.service
+
+[Install]
+WantedBy=timers.target

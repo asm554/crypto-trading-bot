@@ -41,3 +41,17 @@ Cron (UTC, mit 2 Min Versatz nach Kerzenschluss):
 
 Datenquelle: Kraken-Spot-OHLC (USD-Paare). Kraken Spot kann nicht shorten, die Shorts sind simuliert. Für echte Shorts müsste die
 Datenquelle auf die Read-only-API einer Futures-Börse umgestellt werden.
+
+## systemd (statt Cron)
+
+```bash
+cd /root/crypto-trading-bot/systemd
+cp shortdesk@.service.example /etc/systemd/system/shortdesk@.service
+for t in daily 4h 1h weekly; do cp shortdesk-$t.timer.example /etc/systemd/system/shortdesk-$t.timer; done
+systemctl daemon-reload
+systemctl enable --now shortdesk-daily.timer shortdesk-4h.timer shortdesk-1h.timer shortdesk-weekly.timer
+systemctl list-timers 'shortdesk-*'
+journalctl -u 'shortdesk@*' -f
+```
+
+Token/Chat-ID stehen in `shortdesk/.env` (`TELEGRAM_BOT_TOKEN=...`, `TELEGRAM_CHAT_ID=...`, Rechte `chmod 600`).

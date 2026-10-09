@@ -1,0 +1,10 @@
+[Unit]
+Description=Shortdesk 4h Timer
+
+[Timer]
+OnCalendar=*-*-* 00/4:02:00 UTC
+Persistent=true
+Unit=shortdesk@4h.service
+
+[Install]
+WantedBy=timers.target

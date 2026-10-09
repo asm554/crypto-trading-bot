@@ -1,0 +1,12 @@
+[Unit]
+Description=Shortdesk %i (Paper/Alerts, keine Orders)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/crypto-trading-bot
+EnvironmentFile=/root/crypto-trading-bot/shortdesk/.env
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m shortdesk %i
+Environment=PYTHONUNBUFFERED=1
