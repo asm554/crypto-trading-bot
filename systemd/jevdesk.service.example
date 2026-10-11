@@ -1,0 +1,17 @@
+[Unit]
+Description=Jevdesk (Paper-Desk fuer frische DEX-Token, keine Orders)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/crypto-trading-bot
+EnvironmentFile=/root/crypto-trading-bot/jevdesk/.env
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m jevdesk run
+Restart=on-failure
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
