@@ -132,3 +132,57 @@ def test_ask_returns_answers_and_fails_closed():
     assert asyncio.run(_gate(ok).ask({"a": 1}, {"q": {}})) == {"q": {"type": "noul", "noul": 0.5}}
     assert asyncio.run(_gate(boom).ask({"a": 1}, {"q": {}})) is None
     assert asyncio.run(JevGate(api_key="").ask("s", {})) is None
+
+
+def test_gate_sends_shadow_questions_in_one_call_but_decides_on_main_only():
+    seen = {}
+
+    async def post(payload):
+        seen.update(payload)
+        return {"model": "jev-1.13.0", "answers": {
+            "sustained_breakout": {"type": "noul", "noul": 0.8},
+            "momentum_already_spent": {"type": "noul", "noul": 0.99},
+            "volume_is_climax": {"type": "noul", "noul": 0.99}}}
+
+    assert asyncio.run(_gate(post, min_prob=0.6).allows_entry("s")) == (True, 0.8)
+    assert {"sustained_breakout", "momentum_already_spent", "volume_is_climax"} == set(seen["questions"])
+
+
+def test_shadow_log_records_raw_answers_model_and_decision(tmp_path):
+    import json
+
+    async def post(_payload):
+        return {"model": "jev-1.13.0", "answers": {
+            "sustained_breakout": {"type": "noul", "noul": 0.3},
+            "momentum_already_spent": {"type": "noul", "noul": 0.7}}}
+
+    log = tmp_path / "shadow.jsonl"
+    gate = _gate(post, min_prob=0.6, shadow_log=log)
+    asyncio.run(gate.allows_entry({"asset": "SOLEUR"}))
+    row = json.loads(log.read_text().splitlines()[0])
+    assert row["model"] == "jev-1.13.0" and row["allowed"] is False and row["prob"] == 0.3
+    assert row["answers"]["momentum_already_spent"]["noul"] == 0.7
+    assert row["state"] == {"asset": "SOLEUR"}
+
+
+def test_shadow_log_records_failures_and_is_off_by_default(tmp_path):
+    import json
+
+    async def boom(_payload):
+        raise TimeoutError("timeout")
+
+    log = tmp_path / "s.jsonl"
+    assert asyncio.run(_gate(boom, shadow_log=log).allows_entry("s")) == (True, None)
+    row = json.loads(log.read_text().splitlines()[0])
+    assert row["allowed"] is True and "timeout" in row["error"]
+    assert _gate(boom).shadow_log is None
+
+
+def test_unwritable_shadow_log_never_stops_the_gate(tmp_path):
+    async def post(_payload):
+        return _answer(0.9)
+
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    gate = _gate(post, shadow_log=blocker / "sub" / "log.jsonl")  # Elternpfad ist eine Datei
+    assert asyncio.run(gate.allows_entry("s")) == (True, 0.9)

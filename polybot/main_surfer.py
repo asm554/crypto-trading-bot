@@ -41,6 +41,7 @@ ACCOUNT_LOSS_LIMIT_PCT = float(os.getenv("SURF_ACCOUNT_LOSS_LIMIT_PCT", "10.0"))
 PAPER_MODE = os.getenv("SURF_PAPER_MODE", "true").lower() == "true"
 JEV_ENABLED = os.getenv("SURF_JEV_ENABLED", "false").lower() == "true"
 JEV_MIN_PROB = float(os.getenv("SURF_JEV_MIN_PROB", "0.6"))
+JEV_SHADOW_LOG = os.getenv("SURF_JEV_SHADOW_LOG", "polybot/data/jev_shadow.jsonl")
 
 async def main():
     await init_db()
@@ -66,7 +67,7 @@ async def main():
         loss_pause_sec=int(LOSS_PAUSE_H * 3600),
         account_loss_limit_pct=ACCOUNT_LOSS_LIMIT_PCT,
         paper_mode=PAPER_MODE,
-        jev_gate=JevGate(min_prob=JEV_MIN_PROB) if JEV_ENABLED else None,
+        jev_gate=JevGate(min_prob=JEV_MIN_PROB, shadow_log=JEV_SHADOW_LOG) if JEV_ENABLED else None,
     )
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
