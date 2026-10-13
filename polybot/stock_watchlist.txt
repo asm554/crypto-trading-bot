@@ -1,0 +1,19 @@
+# Watchlist für den monatlichen Aktien-Researcher (python -m polybot.main_stock_research).
+# Ein Yahoo-Finance-Ticker pro Zeile, Kommentare mit #.
+# Deutsche Werte mit .DE (Xetra), z. B. SAP.DE. Beispielliste – nach Belieben anpassen.
+MSFT
+AAPL
+NVDA
+GOOGL
+AMZN
+META
+ASML
+V
+COST
+LLY
+NVO
+SAP.DE
+ALV.DE
+SIE.DE
+MUV2.DE
+RHM.DE

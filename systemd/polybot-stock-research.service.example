@@ -1,0 +1,14 @@
+[Unit]
+Description=Polybot Monthly Stock Research
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/crypto-trading-bot
+ExecStart=/root/crypto-trading-bot/bot-env/bin/python3 -m polybot.main_stock_research
+Environment=PYTHONUNBUFFERED=1
+Environment=STOCK_TOP_N=8
+Environment=STOCK_LLM_ENABLED=true
+Environment=STOCK_BENCHMARK=URTH
