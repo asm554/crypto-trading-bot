@@ -2,7 +2,7 @@
 import logging
 import time
 
-from . import book, filters, paper, pick as pickmod, sources, telegram
+from . import book, filters, paper, pick as pickmod, sources, state as jstate, telegram
 from .config import (CHAIN_SET, GT_DOSSIER, GT_UNIVERSE_PAGES, NETS, PAPER, PaperRules)
 from .judge import JudgeError
 
@@ -56,11 +56,11 @@ def run_once(db, judge, src, rules: PaperRules = PAPER, notify=telegram.send, no
             book.sit(db, t["tid"], k, now)
             stats["chain"][k] = stats["chain"].get(k, 0) + 1
             continue
-        d["intended_ticket_usd"] = bank * rules.ticket_pct_of_bank / 100
+        ticket_max = bank * rules.ticket_pct_of_bank / 100
         ans = {}
         try:
-            ans |= judge.ask("market", d)["answers"]
-            ans |= judge.ask(CHAIN_SET[d["chain"]], d)["answers"]
+            ans |= judge.ask("market", jstate.market(d, ticket_max))["answers"]
+            ans |= judge.ask(CHAIN_SET[d["chain"]], jstate.chain(d))["answers"]
         except JudgeError as e:
             book.log_cycle(db, f"judge unavailable: {e}", stats, now)   # Judge weg -> Desk steht, kein Raten
             return None

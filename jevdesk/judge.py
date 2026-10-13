@@ -74,11 +74,12 @@ class RuleJudge:
 
     def _market(self, s):
         r = self._buy_ratio(s)
-        recent = (s.get("volume_h1") or 0) * 24 / max(s.get("volume_h24") or 1, 1)  # 1 = gleichmaessig
+        vol = s.get("volume_usd") or {}
+        recent = (vol.get("h1") or 0) * 24 / max(vol.get("h24") or 1, 1)  # 1 = gleichmaessig
         crowd = _clip((r - 0.4) * 3) * _clip(recent)
         fading = 1 - _clip(recent)
-        ch = s.get("change") or {}
-        spent = _clip(((ch.get("24h") or 0) - 4 * (ch.get("1h") or 0)) / 400)
+        ch = s.get("price_change_pct") or {}
+        spent = _clip(((ch.get("h24") or 0) - 4 * (ch.get("h1") or 0)) / 400)
         return {
             "shape": _choice({"crowd": crowd + 0.01, "one_buyer": 0.1 * (1 - crowd), "fading": fading + 0.01,
                               "too_early": 0.05}),
@@ -87,11 +88,11 @@ class RuleJudge:
         }
 
     def _conc(self, s):
-        t10 = s.get("top_10_percent")
+        t10 = s.get("top_10_holders_pct_of_supply")
         return _noul(float(t10) / 100 if t10 is not None else 0.5)
 
     def _dev(self, s):
-        return _noul((s.get("developer_holding_percentage") or 0) / 20)
+        return _noul((s.get("developer_holding_pct_of_supply") or 0) / 20)
 
     def _solana(self, s):
         m, f = bool(s.get("mint_authority")), bool(s.get("freeze_authority"))
@@ -116,7 +117,7 @@ class RuleJudge:
 
     def _robinhood(self, s):
         has_holders = s.get("holder_count") is not None
-        has_dist = s.get("top_10_percent") is not None
+        has_dist = s.get("top_10_holders_pct_of_supply") is not None
         cov = "indexed" if has_holders and has_dist else "partial" if has_holders else "dark"
         sells = s.get("sells_h1") or 0
         return {"data_coverage": _choice({"indexed": 0, "partial": 0, "dark": 0, cov: 1.0}),

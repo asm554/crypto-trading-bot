@@ -2,19 +2,21 @@
 
 CONCENTRATION = {
     "type": "noul",
-    "instructions": "Holding this token means being exit liquidity, based on `top_10_percent`, "
-                    "`top_wallet_percent` and `holder_count`.",
+    "instructions": "Holding this token means being exit liquidity: a few wallets could end the market by "
+                    "selling, based on `top_10_holders_pct_of_supply`, `top_wallet_pct_of_supply` (both in percent "
+                    "of total supply) and `holder_count`. Missing values are unknown, not safe.",
 }
 DEV_LOADED = {
     "type": "noul",
-    "instructions": "`developer_holding_percentage` is large enough that the creator selling would "
-                    "meaningfully move the price.",
+    "instructions": "`developer_holding_pct_of_supply` (percent of total supply) is large enough that the "
+                    "creator selling would meaningfully move the price. A missing value is unknown, not zero.",
 }
 
 MARKET = {
     "shape": {
         "type": "choice",
-        "instructions": "Classify the shape of this launch from the fields in `state`.",
+        "instructions": "Classify the shape of this launch from `volume_usd`, `price_change_pct`, the buy and "
+                        "sell counts and `holder_count`.",
         "criteria": {
             "crowd": "Buys outnumber sells across both recent windows. Volume is spread rather than spiking once.",
             "one_buyer": "Price climbing much faster than the number of trades or holders. One wallet walking the price up.",
@@ -29,8 +31,9 @@ MARKET = {
     },
     "momentum_already_spent": {
         "type": "noul",
-        "instructions": "The move in `change` has already happened, so entering now means buying after "
-                        "the information is public. The largest change sitting in the older windows means true.",
+        "instructions": "The move in `price_change_pct` has already happened, so entering now means buying "
+                        "after the information is public. True when most of the h24 move happened before the "
+                        "last hour; false when m5 and h1 still carry the move.",
     },
 }
 
@@ -53,7 +56,7 @@ CHAIN_BSC = {
     "sell_side_risk": {
         "type": "choice",
         "instructions": "Judge whether a position here can be sold, from `is_honeypot`, `gt_score_details` "
-                        "and the buy and sell counts.",
+                        "and the buy and sell counts. A missing honeypot field is not a clean answer.",
         "criteria": {
             "clean": "Not flagged, and sells are going through in the data.",
             "flagged": "Explicitly flagged as a honeypot.",
@@ -67,7 +70,8 @@ CHAIN_BSC = {
 CHAIN_ROBINHOOD = {
     "data_coverage": {
         "type": "choice",
-        "instructions": "Judge how much of this token is visible, from which fields in `state` carry values.",
+        "instructions": "Judge how much of this token is visible, from which fields in `state` carry values and "
+                        "which are null.",
         "criteria": {
             "indexed": "Holder count and distribution present, honeypot field is a real answer.",
             "partial": "Holder count present, but distribution or the honeypot field is missing.",

@@ -17,15 +17,11 @@ def summary(d, ans) -> str:
     return "; ".join(bits)
 
 
-def key_of(d) -> str:
-    return f"{d['ticker']}@{d['addr'][:6]}"   # Ticker allein ist auf DEX nicht eindeutig
-
-
 def pick(judge, survivors) -> dict | None:
     """survivors: [(dossier, answers)]. Gibt Order-Dict oder None."""
     if not survivors:
         return None
-    cands = [{"key": key_of(d), "summary": summary(d, a)} for d, a in survivors]
+    cands = [{"key": f"candidate_{i + 1}", "summary": summary(d, a)} for i, (d, a) in enumerate(survivors)]
     if getattr(judge, "needs_hints", False):   # nur der Regel-Fallback braucht Zahlen
         for c, (d, a) in zip(cands, survivors):
             c["rule_score"] = a["shape"]["probabilities"].get("crowd", 0) * (1 - a["concentration_is_exit_risk"]["noul"])
@@ -35,7 +31,8 @@ def pick(judge, survivors) -> dict | None:
         return {"none": "worth_trading_at_all", "value": worth["noul"], "model": r["model"]}
     if best["confidence"] < PICK_MIN_CONF:
         return {"none": "low_confidence", "value": best["confidence"], "model": r["model"]}
-    hit = next(((d, a) for d, a in survivors if key_of(d) == best["choice"]), None)
+    keys = {c["key"]: i for i, c in enumerate(cands)}
+    hit = survivors[keys[best["choice"]]] if best["choice"] in keys else None
     if hit is None:
         return {"none": "choice_not_in_list", "value": None, "model": r["model"]}
     return finish(hit, r["model"], best["confidence"], best["probabilities"])
