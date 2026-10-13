@@ -23,6 +23,23 @@ class LiveSources:
         return sources.pool_prices(chain, pools)
 
 
+FAIL_ALERT_AFTER = 4          # 4 Zyklen = 1 Stunde ohne Daten/Judge -> einmal per Telegram melden
+
+
+def _failed(db, msg, stats, notify, now):
+    n = int(book.get_meta(db, "fail_streak", 0)) + 1
+    book.set_meta(db, "fail_streak", n)
+    book.log_cycle(db, msg, stats, now)
+    if n == FAIL_ALERT_AFTER:
+        notify(f"ACHTUNG jevdesk: seit {n} Zyklen kein normaler Lauf.\nLetzter Fehler: {msg[:300]}")
+
+
+def _healthy(db, notify):
+    if int(book.get_meta(db, "fail_streak", 0)) >= FAIL_ALERT_AFTER:
+        notify("jevdesk laeuft wieder normal.")
+    book.set_meta(db, "fail_streak", 0)
+
+
 def run_once(db, judge, src, rules: PaperRules = PAPER, notify=telegram.send, now: float | None = None):
     now = time.time() if now is None else now
     if (h := book.held(db)):
@@ -34,56 +51,68 @@ def run_once(db, judge, src, rules: PaperRules = PAPER, notify=telegram.send, no
     try:
         tokens = src.universe()
     except Exception as e:
-        book.log_cycle(db, f"universe failed: {e}", stats, now)
+        _failed(db, f"universe failed: {e}", stats, notify, now)
+        return None
+    if not tokens:
+        _failed(db, "keine Daten von GeckoTerminal (Limit oder Netz)", stats, notify, now)
         return None
     for t in tokens:
-        stats["seen"] += 1
-        if book.benched(db, t["tid"], now):
-            stats["benched"] += 1
-            continue
-        if (k := filters.free_kill(t)):
-            book.sit(db, t["tid"], k, now)
-            stats["free"][k] = stats["free"].get(k, 0) + 1
-            if k not in ("age",):                       # zu junge Token kommen spaeter ohnehin wieder
-                record.observe(db, t, "free", k, now=now)
-            continue
-        if slots <= 0:
-            record.observe(db, t, "budget", now=now)   # bestand Gratis-Filter, aber kein Dossier-Slot frei
-            continue
-        slots -= 1
         try:
-            d = src.dossier(t)
-            stats["dossiers"] += 1
-        except Exception as e:
-            log.warning("dossier failed %s: %s", t["ticker"], e)
-            book.sit(db, t["tid"], "dossier_failed", now)
-            record.observe(db, t, "dossier_failed", now=now)
-            continue
-        if (k := filters.chain_kill(d)):
-            book.sit(db, t["tid"], k, now)
-            stats["chain"][k] = stats["chain"].get(k, 0) + 1
-            record.observe(db, d, "chain", k, now=now)
-            continue
-        ticket_max = bank * rules.ticket_pct_of_bank / 100
-        ans = {}
-        try:
-            r1 = judge.ask("market", jstate.market(d, ticket_max))
-            ans |= r1["answers"]
-            ans |= judge.ask(CHAIN_SET[d["chain"]], jstate.chain(d))["answers"]
-            d["_model"] = r1.get("model")
-        except JudgeError as e:
-            book.log_cycle(db, f"judge unavailable: {e}", stats, now)   # Judge weg -> Desk steht, kein Raten
-            return None
-        except Exception as e:
-            log.warning("judge failed %s: %s", d["ticker"], e)
-            continue                                                       # nicht am Token, keine Bench
-        if (k := filters.soft_kill(ans)):
-            book.sit(db, t["tid"], k, now)
-            stats["soft"][k] = stats["soft"].get(k, 0) + 1
-            record.observe(db, d, "soft", k, ans, d.get("_model"), now)
-            continue
-        survivors.append((d, ans))
+            stats["seen"] += 1
+            if book.benched(db, t["tid"], now):
+                stats["benched"] += 1
+                continue
+            if (k := filters.free_kill(t)):
+                book.sit(db, t["tid"], k, now)
+                stats["free"][k] = stats["free"].get(k, 0) + 1
+                if k not in ("age",):                       # zu junge Token kommen spaeter ohnehin wieder
+                    record.observe(db, t, "free", k, now=now)
+                continue
+            if slots <= 0:
+                record.observe(db, t, "budget", now=now)   # bestand Gratis-Filter, aber kein Dossier-Slot frei
+                continue
+            slots -= 1
+            try:
+                d = src.dossier(t)
+                stats["dossiers"] += 1
+            except Exception as e:
+                log.warning("dossier failed %s: %s", t["ticker"], e)
+                book.sit(db, t["tid"], "dossier_failed", now)
+                record.observe(db, t, "dossier_failed", now=now)
+                continue
+            if (k := filters.chain_kill(d)):
+                book.sit(db, t["tid"], k, now)
+                stats["chain"][k] = stats["chain"].get(k, 0) + 1
+                record.observe(db, d, "chain", k, now=now)
+                continue
+            ticket_max = bank * rules.ticket_pct_of_bank / 100
+            ans = {}
+            try:
+                r1 = judge.ask("market", jstate.market(d, ticket_max))
+                ans |= r1["answers"]
+                ans |= judge.ask(CHAIN_SET[d["chain"]], jstate.chain(d))["answers"]
+                d["_model"] = r1.get("model")
+            except JudgeError as e:
+                _failed(db, f"judge unavailable: {e}", stats, notify, now)   # Judge weg -> Desk steht, kein Raten
+                return None
+            except Exception as e:
+                log.warning("judge failed %s: %s", d["ticker"], e)
+                continue                                                       # nicht am Token, keine Bench
+            if (k := filters.soft_kill(ans)):
+                book.sit(db, t["tid"], k, now)
+                stats["soft"][k] = stats["soft"].get(k, 0) + 1
+                record.observe(db, d, "soft", k, ans, d.get("_model"), now)
+                continue
+            survivors.append((d, ans))
 
+        except Exception as e:                      # ein kaputter Datensatz darf nie den Zyklus stoppen
+            log.warning("token %s skipped: %s", t.get("tid"), e)
+            stats["errors"] = stats.get("errors", 0) + 1
+
+    if stats.get("errors") and stats["errors"] >= max(3, stats["seen"] // 2):
+        _failed(db, f"{stats['errors']} Token-Fehler in einem Zyklus", stats, notify, now)
+        return None
+    _healthy(db, notify)
     if not survivors:
         book.log_cycle(db, "no survivors", stats, now)
         return None
@@ -93,7 +122,7 @@ def run_once(db, judge, src, rules: PaperRules = PAPER, notify=telegram.send, no
         else:
             order = pickmod.pick(judge, survivors)
     except JudgeError as e:
-        book.log_cycle(db, f"judge unavailable (pick): {e}", stats, now)
+        _failed(db, f"judge unavailable (pick): {e}", stats, notify, now)
         return None
     def mark_survivors(chosen_tid, stage_for_chosen, reason=None):
         for sd, sa in survivors:
@@ -116,7 +145,7 @@ def run_once(db, judge, src, rules: PaperRules = PAPER, notify=telegram.send, no
         book.log_cycle(db, f"no trade: ticket {ticket:.2f} too small", stats, now)
         return None
     mark_survivors(d["tid"], "entered")
-    fill = paper.fill_buy(d["price_usd"], ticket)
+    fill = paper.fill_buy(d["price_usd"], ticket, d["liquidity_usd"])
     tid = book.open_trade(db, order, fill, now)
     book.log_cycle(db, f"ENTRY {d['ticker']}", stats, now)
     notify(f"PAPER-ENTRY #{tid} {d['ticker']} ({d['chain']})\nTicket ${ticket:.2f} | Preis {fill['price']:.8g}\n"
@@ -141,21 +170,23 @@ def run_monitor(db, src, rules: PaperRules = PAPER, notify=telegram.send, now: f
     try:
         cur = src.refresh(h)
     except Exception as e:
-        log.warning("refresh failed: %s", e)
-        cur = None
-        misses = int(book.get_meta(db, "refresh_misses", 0)) + 1
-        book.set_meta(db, "refresh_misses", misses)
-        if misses < 3:                  # zwei Fehlversuche tolerieren, dann zaehlt es als nicht messbar
+        log.warning("refresh failed: %s", e)    # Netz/Limit: nichts buchen, naechster Lauf misst neu
+        return None
+    if not cur or not cur.get("price_usd"):
+        misses = int(book.get_meta(db, "gone_misses", 0)) + 1
+        book.set_meta(db, "gone_misses", misses)
+        if misses < 3:                          # dreimal in Folge nicht gelistet -> Pool gilt als weg
             return None
+        cur, reason = {"price_usd": 0.0}, "GONE"
     else:
-        book.set_meta(db, "refresh_misses", 0)
-    reason = paper.exit_reason(h, cur, now, rules)
+        book.set_meta(db, "gone_misses", 0)
+        reason = None
+    reason = reason or paper.exit_reason(h, cur, now, rules)
     if not reason:
         return None
-    price = (cur or {}).get("price_usd") or h["entry_price"]
-    ex = paper.fill_sell(h, price)
+    ex = paper.fill_sell(h, cur["price_usd"], cur.get("liquidity_usd") or h["liquidity_usd"])
     book.close_trade(db, h["id"], {**ex, "reason": reason}, now)
-    book.set_meta(db, "refresh_misses", 0)
+    book.set_meta(db, "gone_misses", 0)
     notify(f"PAPER-EXIT #{h['id']} {h['ticker']}: {reason}\nErgebnis {ex['pnl_pct']:+.1f}% (${ex['pnl_usd']:+.2f})")
     return reason
 

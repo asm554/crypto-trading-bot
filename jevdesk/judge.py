@@ -30,6 +30,8 @@ class JevJudge:
             if r.status_code in (429, 529):       # Backoff, nie bei 422
                 time.sleep(2 ** attempt)
                 continue
+            if r.status_code in (401, 403):
+                raise JudgeError(f"Jev-Key abgelehnt ({r.status_code})")
             if r.status_code == 422:
                 raise JudgeError(f"malformed question set: {r.text[:300]}")
             r.raise_for_status()
@@ -128,4 +130,5 @@ class RuleJudge:
         cands = s["candidates"]
         scores = {c["key"]: c.get("rule_score", 0.5) for c in cands}
         out = _choice(scores)
+        out["confidence"] = round(max(scores.values()), 3)   # absolut, sonst sinkt sie mit jeder weiteren Option
         return {"best": out, "worth_trading_at_all": _noul(max(scores.values()))}

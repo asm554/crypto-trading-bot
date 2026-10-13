@@ -7,13 +7,21 @@ def size_ticket(bank: float, liquidity_usd: float, size_factor: float, rules: Pa
     return t * size_factor
 
 
-def fill_buy(price: float, ticket: float) -> dict:
-    fill = price * (1 + SLIPPAGE_PCT / 100)
+def price_impact_pct(ticket_usd: float, liquidity_usd: float | None) -> float:
+    """AMM-Naeherung: Ticket gegen eine Seite des Pools (halbe Liquiditaet). 2 % der Liquiditaet ~ 4 % Wirkung."""
+    if not liquidity_usd:
+        return 0.0
+    return min(50.0, ticket_usd / (liquidity_usd / 2) * 100)
+
+
+def fill_buy(price: float, ticket: float, liquidity_usd: float | None = None) -> dict:
+    fill = price * (1 + (SLIPPAGE_PCT + price_impact_pct(ticket, liquidity_usd)) / 100)
     return {"price": fill, "units": ticket * (1 - FEE_PCT / 100) / fill, "ticket": ticket}
 
 
-def fill_sell(trade, price: float) -> dict:
-    fill = price * (1 - SLIPPAGE_PCT / 100)
+def fill_sell(trade, price: float, liquidity_usd: float | None = None) -> dict:
+    value = trade["units"] * price
+    fill = price * (1 - (SLIPPAGE_PCT + price_impact_pct(value, liquidity_usd)) / 100)
     proceeds = trade["units"] * fill * (1 - FEE_PCT / 100)
     pnl = proceeds - trade["ticket_usd"]
     return {"price": fill, "pnl_usd": pnl, "pnl_pct": pnl / trade["ticket_usd"] * 100}
@@ -26,9 +34,9 @@ def volume_ratio(t: dict) -> float | None:
 
 
 def exit_reason(trade, cur: dict, now: float, rules: PaperRules) -> str | None:
-    """Artikel-Regel (Volumen) plus zwei Paper-Sicherungen (Stop, Zeit). Preis fehlt -> schliessen (nicht messbar)."""
+    """Artikel-Regel (Volumen) plus zwei Paper-Sicherungen (Stop, Zeit). Fehlende Daten regelt der Monitor."""
     if not cur or not cur.get("price_usd"):
-        return "NO_DATA"
+        return None
     ratio = volume_ratio(cur)
     if ratio is not None and ratio < rules.exit_volume_ratio:
         return "VOLUME"

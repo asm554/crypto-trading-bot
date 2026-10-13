@@ -141,7 +141,7 @@ def test_exit_rules():
     assert paper.exit_reason(h, {**ok, "volume_h6": 10}, NOW + 60, PAPER) == "VOLUME"   # 10 < 0.2 * 100
     assert paper.exit_reason(h, {**ok, "price_usd": 0.6}, NOW + 60, PAPER) == "STOP"
     assert paper.exit_reason(h, ok, NOW + 25 * 3600, PAPER) == "TIME"
-    assert paper.exit_reason(h, None, NOW, PAPER) == "NO_DATA"
+    assert paper.exit_reason(h, None, NOW, PAPER) is None          # fehlende Daten regelt der Monitor
 
 
 # --- Zyklus ---------------------------------------------------------------
@@ -192,12 +192,73 @@ def test_monitor_closes_on_volume_rule_and_books_pnl(db):
     assert book.realized_pnl(db) > 0       # +20 % abzueglich Kosten
 
 
-def test_monitor_tolerates_two_refresh_failures_then_closes(db):
+def test_network_errors_never_close_but_vanished_pool_is_total_loss(db):
+    msgs = []
     desk.run_once(db, rj(), FakeSrc([tok()]), notify=lambda m: None, now=NOW)
     bad = FakeSrc([], cur=TimeoutError("x"))
-    assert desk.run_monitor(db, bad, notify=lambda m: None, now=NOW + 300) is None
-    assert desk.run_monitor(db, bad, notify=lambda m: None, now=NOW + 600) is None
-    assert desk.run_monitor(db, bad, notify=lambda m: None, now=NOW + 900) == "NO_DATA"
+    for i in range(5):
+        assert desk.run_monitor(db, bad, notify=msgs.append, now=NOW + 300 * (i + 1)) is None
+    assert book.held(db) is not None                                  # Netzfehler bucht nichts
+    gone = FakeSrc([], cur=None)
+    assert desk.run_monitor(db, gone, notify=msgs.append, now=NOW + 3000) is None
+    assert desk.run_monitor(db, gone, notify=msgs.append, now=NOW + 3300) is None
+    assert desk.run_monitor(db, gone, notify=msgs.append, now=NOW + 3600) == "GONE"
+    assert book.stats(db)["total_usd"] == pytest.approx(-db.execute("SELECT ticket_usd FROM trades").fetchone()[0])
+
+
+def test_price_impact_makes_small_pools_expensive():
+    assert paper.price_impact_pct(200, 20_000) == pytest.approx(2.0)
+    big = paper.fill_buy(1.0, 100, 1_000_000)["price"]
+    small = paper.fill_buy(1.0, 100, 5_000)["price"]
+    assert small > big > 1.0
+
+
+def test_jev_rejected_key_stands_desk_down(monkeypatch):
+    import jevdesk.judge as jm
+
+    class R:
+        status_code = 401
+        text = "bad key"
+    monkeypatch.setattr(jm.requests, "post", lambda *a, **k: R())
+    with pytest.raises(JudgeError):
+        JevJudge(api_key="x").ask("market", {})
+
+
+def test_fail_streak_alerts_once_and_recovers(db):
+    msgs = []
+
+    class Empty(FakeSrc):
+        def universe(self):
+            return []
+    for i in range(6):
+        desk.run_once(db, rj(), Empty([]), notify=msgs.append, now=NOW + i * 900)
+    assert sum("ACHTUNG" in m for m in msgs) == 1
+    desk.run_once(db, rj(), FakeSrc([tok(liquidity_usd=1)]), notify=msgs.append, now=NOW + 9000)
+    assert "wieder normal" in msgs[-1]
+
+
+def test_broken_token_does_not_stop_cycle(db):
+    bad = tok(tid="solana:BAD", addr="BAD")
+    del bad["liquidity_usd"]
+    tid = desk.run_once(db, rj(), FakeSrc([bad, tok()]), notify=lambda m: None, now=NOW)
+    assert tid and book.held(db)["addr"] == "AAA"
+
+
+def test_rule_pick_confidence_does_not_shrink_with_more_candidates():
+    j = rj()
+    cands = [{"key": f"candidate_{i}", "summary": "", "rule_score": 0.8} for i in range(5)]
+    best = j.ask("pick", {"candidates": cands})["answers"]["best"]
+    assert best["confidence"] == 0.8
+
+
+def test_record_upgrades_budget_row_when_judged_later(db):
+    from jevdesk import record
+    record.observe(db, tok(price_usd=1.0), "budget", now=NOW)
+    record.observe(db, tok(price_usd=1.5), "entered", now=NOW + 1800)
+    r = db.execute("SELECT * FROM observations").fetchone()
+    assert r["stage"] == "entered" and r["price_usd"] == 1.5 and r["observed_ts"] == NOW + 1800
+    record.observe(db, tok(price_usd=9.0), "free", "volume", now=NOW + 7200)
+    assert db.execute("SELECT stage FROM observations").fetchone()[0] == "entered"
 
 
 def _pick_judge(choice, worth=0.9, conf=0.9):
@@ -309,7 +370,7 @@ def test_record_observes_every_stage_once(db):
     assert rows["solana:LOW"]["stage"] == "free" and rows["solana:LOW"]["reason"] == "liquidity"
     stages = sorted(r["stage"] for r in rows.values())
     assert stages.count("budget") == 2                       # 5 bestanden, nur 3 Dossier-Slots
-    assert stages.count("pick") == 3                         # 3 gleichwertige -> Pick unsicher, alle festgehalten
+    assert stages.count("entered") == 1 and stages.count("not_picked") == 2
     assert all(r["price_usd"] for r in rows.values())
 
 

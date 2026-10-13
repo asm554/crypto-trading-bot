@@ -14,6 +14,8 @@ Judge: "market" + Chain-Satz (solana|bsc|robinhood), je EIN Aufruf pro Token
 Soft-Schwellen (thresholds in config.py) -> Bench nach Ablehnungsgrund
 Pick: Choice über die Überlebenden + "lohnt der Tag" (Noul). Kein Trade ist ein normales Ergebnis
 Paper-Position (nur eine), Exit: 6h-Volumen < 20 % des Ø (Artikelregel), plus Stop -35 % und 24h-Zeitlimit
+Pool 3x in Folge nicht mehr gelistet -> GONE, gebucht als Totalverlust. Netzfehler buchen nichts.
+Fills: 1 % Gebühr + 1,5 % Slippage + Preiswirkung (Ticket gegen halbe Pool-Liquidität), je Seite
 ```
 
 Judge: mit `TYPESAFE_API_KEY` ruft das Desk Jev (`api.typesafe.ai/v1/systemone`, 422 nie wiederholen, 429/529 mit Backoff).
@@ -23,9 +25,16 @@ Ohne Key läuft ein grober Regel-Fallback; das Modell steht dann als `rules-fall
 Nicht in v1: X-/Social-Lesen (immer Size-Faktor 0,6), FOMO-Execution, Echtgeld.
 Schwellen sind die des Artikels, nicht auf eigene Daten getunt. Erst eine Woche beobachten, dann `config.py` anpassen.
 
+## Aufzeichnung (Replay)
+
+Jeder Token, der die Gratis-Filter besteht (und die meisten, die daran scheitern), wird einmal mit Stufe, Grund,
+Werten und Judge-Antworten gespeichert. Der Kurs wird nach 1h, 6h und 24h nachgemessen (30 Pools pro GT-Abruf,
+keine Jev-Kosten). `python -m jevdesk replay` bzw. die Web-Seite zeigt je Ablehnungsgrund, was aus den Token wurde.
+Damit lassen sich Schwellen auf echten Daten prüfen, bevor man sie ändert.
+
 ## Überwachung per Telegram
 
-Der Bot meldet Paper-Entries, Paper-Exits und einen Tages-Digest. Kommandos (nur dein Chat): `/status` `/pos` `/report` `/help`.
+Der Bot meldet Paper-Entries, Paper-Exits, einen Tages-Digest und einmalig, wenn er eine Stunde lang keine Daten bekommt oder Jev nicht erreicht. Kommandos (nur dein Chat): `/status` `/pos` `/report` `/help`.
 Zusätzlich auf dem Server: `python -m jevdesk status | pos | report`, `journalctl -u jevdesk -f`.
 
 ## Betrieb

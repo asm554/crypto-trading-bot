@@ -27,19 +27,25 @@ def ensure(db):
     db.executescript(SCHEMA)
 
 
+EARLY = ("budget", "dossier_failed")    # nur gesehen, nicht beurteilt
+
+
 def observe(db, t: dict, stage: str, reason: str | None = None, answers: dict | None = None,
             model: str | None = None, now: float | None = None) -> None:
-    """Einmal je Token (erstes Sehen). Spaetere Stufen desselben Zyklus aktualisieren die Zeile."""
+    """Eine Zeile je Token. Wird ein frueher nur gesehener Token (EARLY) spaeter beurteilt, ersetzt die
+    Beurteilung die Zeile samt Zeit und Preis, solange noch kein Checkpoint gemessen ist."""
     ensure(db)
+    now = time.time() if now is None else now
     snap = json.dumps({k: t.get(k) for k in SNAP_KEYS if k in t})
-    db.execute(
-        "INSERT INTO observations(tid,chain,pool,ticker,observed_ts,price_usd,stage,reason,model,snapshot,answers) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(tid) DO UPDATE SET stage=excluded.stage, reason=excluded.reason, "
-        "model=COALESCE(excluded.model, model), snapshot=excluded.snapshot, answers=COALESCE(excluded.answers, answers) "
-        "WHERE observations.p_1h IS NULL AND observations.ts_1h IS NULL AND ?-observations.observed_ts < 900",
-        (t["tid"], t["chain"], t.get("pool"), t.get("ticker"), time.time() if now is None else now,
-         t.get("price_usd"), stage, reason, model, snap, json.dumps(answers) if answers else None,
-         time.time() if now is None else now))
+    row = db.execute("SELECT stage, observed_ts, ts_1h FROM observations WHERE tid=?", (t["tid"],)).fetchone()
+    values = (t["chain"], t.get("pool"), t.get("ticker"), now, t.get("price_usd"), stage, reason, model, snap,
+              json.dumps(answers) if answers else None)
+    if row is None:
+        db.execute("INSERT INTO observations(chain,pool,ticker,observed_ts,price_usd,stage,reason,model,snapshot,"
+                   "answers,tid) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (*values, t["tid"]))
+    elif row["ts_1h"] is None and (now - row["observed_ts"] < 900 or (row["stage"] in EARLY and stage not in EARLY)):
+        db.execute("UPDATE observations SET chain=?,pool=?,ticker=?,observed_ts=?,price_usd=?,stage=?,reason=?,"
+                   "model=?,snapshot=?,answers=? WHERE tid=?", (*values, t["tid"]))
     db.commit()
 
 
