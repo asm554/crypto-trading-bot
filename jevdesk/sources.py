@@ -128,3 +128,17 @@ def sol_top_wallet(mint: str, rpc_post=None):
         return float(top[0]["amount"]) / supply if supply and top else None
     except Exception:
         return None
+
+
+def pool_prices(chain: str, pool_addrs: list[str], get=http_get_json) -> dict:
+    """Aktuelle Preise fuer bis zu 30 Pools in EINEM Abruf. Fehlende Pools fehlen im Ergebnis (nicht 0)."""
+    if not pool_addrs:
+        return {}
+    data = get(f"{GT}/networks/{chain}/pools/multi/{','.join(pool_addrs[:30])}").get("data") or []
+    out = {}
+    for p in data:
+        a = p.get("attributes") or {}
+        price = _num(a.get("base_token_price_usd"))
+        if a.get("address") and price:
+            out[a["address"]] = price
+    return out

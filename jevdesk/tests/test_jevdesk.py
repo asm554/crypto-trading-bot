@@ -297,3 +297,44 @@ def test_web_background_serves_and_tolerates_busy_port(tmp_path):
     assert json.loads(body)["empty"] is True
     assert web.start_background(port=port) is None      # belegt -> kein Absturz
     srv.shutdown()
+
+
+# --- Aufzeichnung ---------------------------------------------------------
+def test_record_observes_every_stage_once(db):
+    from jevdesk import record
+    toks = [tok(tid=f"solana:T{i}", addr=f"T{i}", pool=f"P{i}") for i in range(5)] + \
+           [tok(tid="solana:LOW", addr="LOW", pool="PL", liquidity_usd=100)]
+    desk.run_once(db, rj(), FakeSrc(toks), notify=lambda m: None, now=NOW)
+    rows = {r["tid"]: r for r in db.execute("SELECT * FROM observations")}
+    assert rows["solana:LOW"]["stage"] == "free" and rows["solana:LOW"]["reason"] == "liquidity"
+    stages = sorted(r["stage"] for r in rows.values())
+    assert stages.count("budget") == 2                       # 5 bestanden, nur 3 Dossier-Slots
+    assert stages.count("pick") == 3                         # 3 gleichwertige -> Pick unsicher, alle festgehalten
+    assert all(r["price_usd"] for r in rows.values())
+
+
+def test_record_tracks_checkpoints_and_marks_gone_not_zero(db):
+    from jevdesk import record
+    record.observe(db, tok(tid="solana:A", pool="PA", price_usd=1.0), "free", "volume", now=NOW)
+    record.observe(db, tok(tid="solana:B", pool="PB", price_usd=1.0), "free", "volume", now=NOW)
+    prices = lambda chain, pools: {"PA": 2.0}            # PB fehlt
+    assert record.track(db, prices, now=NOW + 3700) == 1
+    a, b = [db.execute("SELECT * FROM observations WHERE tid=?", (t,)).fetchone() for t in ("solana:A", "solana:B")]
+    assert a["p_1h"] == 2.0 and a["ts_1h"] and a["ts_6h"] is None
+    assert b["ts_1h"] is None                             # fehlt -> spaeter nochmal
+    record.track(db, prices, now=NOW + 3600 + record.GIVE_UP_AFTER + 1)
+    b = db.execute("SELECT * FROM observations WHERE tid='solana:B'").fetchone()
+    assert b["ts_1h"] and b["p_1h"] is None               # aufgegeben = weg, nicht 0
+    s = {r["group"]: r for r in record.summary(db)}["free:volume"]
+    assert s["1h"]["measured"] == 1 and s["1h"]["median_pct"] == 100.0 and s["1h"]["gone"] == 1
+
+
+def test_tracking_errors_never_raise(db):
+    from jevdesk import record
+
+    class Src:
+        def prices(self, c, p):
+            raise TimeoutError
+    record.observe(db, tok(tid="solana:A", pool="PA"), "free", "volume", now=NOW)
+    assert desk.run_tracking(db, Src(), now=NOW + 4000) == 0
+    assert "Noch keine" not in record.render(record.summary(db))

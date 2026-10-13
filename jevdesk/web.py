@@ -6,7 +6,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import book
+from . import book, record
 from .config import PAPER
 
 
@@ -36,12 +36,17 @@ def _answer_digest(why: str | None) -> dict:
     return out
 
 
+def _replay(db) -> list:
+    has = db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='observations'").fetchone()
+    return record.summary(db) if has else []
+
+
 def state(path=None) -> dict:
     db = _ro(path or book.DB_PATH)
     now = time.time()
     if db is None:
         return {"now": now, "empty": True, "bank": PAPER.bank_usd, "stats": {}, "position": None,
-                "cycles": [], "trades": []}
+                "cycles": [], "trades": [], "replay": []}
     try:
         realized = db.execute("SELECT COALESCE(SUM(pnl_usd),0) s FROM trades WHERE status='CLOSED'").fetchone()["s"]
         rows = db.execute("SELECT pnl_usd, pnl_pct FROM trades WHERE status='CLOSED'").fetchall()
@@ -67,7 +72,7 @@ def state(path=None) -> dict:
                 "position": ({"ticker": h["ticker"], "chain": h["chain"], "opened_ts": h["opened_ts"],
                               "entry_price": h["entry_price"], "ticket_usd": h["ticket_usd"], "addr": h["addr"]}
                              if h else None),
-                "cycles": cycles, "trades": trades}
+                "cycles": cycles, "trades": trades, "replay": _replay(db)}
     finally:
         db.close()
 
@@ -88,6 +93,9 @@ td,th{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left;font-s
 <div class="grid" id="kpi"></div><h2>Offene Position</h2><div id="pos" class="card"></div>
 <h2>Letzte Zyklen (warum kam nichts durch?)</h2><div class="tbl"><table id="cyc"></table></div>
 <h2>Trades</h2><div class="tbl"><table id="trd"></table></div>
+<h2>Aufzeichnung: was wurde aus den Token? (Kurs nach 1h / 6h / 24h)</h2>
+<div class="mut">Median der Kursveraenderung, Anteil &gt;+50 %, Anteil &lt;-50 %, weg = kein Kurs mehr. Zeigt, ob Filter Gewinner aussortieren.</div>
+<div class="tbl"><table id="rep"></table></div>
 </main><script>
 const $=id=>document.getElementById(id);
 function el(tag,txt,cls){const e=document.createElement(tag);if(txt!==undefined)e.textContent=txt;if(cls)e.className=cls;return e}
@@ -109,6 +117,10 @@ async function load(){
  const t=$('trd');t.replaceChildren();row(t,['#','Token','Status','Ergebnis','Grund','Modell','Antworten'],true);
  s.trades.forEach(x=>row(t,['#'+x.id,x.ticker+' ('+x.chain+')',x.status,
    x.pnl_pct==null?'-':{t:x.pnl_pct.toFixed(1)+' % / '+usd(x.pnl_usd),c:x.pnl_usd>=0?'ok':'bad'},x.exit_reason||'-',x.model+(x.confidence?' '+x.confidence:''),kv(x.answers)]));
+
+ const r=$('rep');r.replaceChildren();row(r,['Gruppe','n','1h','6h','24h'],true);
+ const cell=x=>!x||!x.measured?(x&&x.gone?'weg '+x.gone:'-'):(x.median_pct>=0?'+':'')+x.median_pct+' % | '+Math.round(x.share_up50*100)+' % | '+Math.round(x.share_down50*100)+' % | weg '+x.gone;
+ (s.replay||[]).forEach(g=>row(r,[g.group,g.n,cell(g['1h']),cell(g['6h']),cell(g['24h'])]));
 }
 load();setInterval(load,30000);
 </script></body></html>"""

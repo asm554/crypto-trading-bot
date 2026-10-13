@@ -20,7 +20,7 @@ def make_judge():
 
 def main():
     p = argparse.ArgumentParser(prog="jevdesk", description="Paper-Desk fuer frische DEX-Token (keine Orders)")
-    p.add_argument("cmd", choices=["run", "once", "monitor", "status", "pos", "report", "web"])
+    p.add_argument("cmd", choices=["run", "once", "monitor", "status", "pos", "report", "web", "replay"])
     a = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     if a.cmd == "web":
@@ -40,6 +40,9 @@ def main():
         print(telegram.status_text(db, PAPER))
     elif a.cmd == "pos":
         print(telegram.pos_text(db))
+    elif a.cmd == "replay":
+        from . import record
+        print(record.render(record.summary(db)))
     elif a.cmd == "report":
         print(telegram.handle(db, PAPER, "/report"))
 
