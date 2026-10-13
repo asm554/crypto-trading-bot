@@ -29,6 +29,8 @@ def main():
         return
     db = book.connect()
     if a.cmd == "run":
+        from . import web
+        web.start_background()
         desk.run_forever(db, make_judge(), desk.LiveSources(), PAPER, CYCLE_SECONDS, MONITOR_SECONDS)
     elif a.cmd == "once":
         print(desk.run_once(db, make_judge(), desk.LiveSources()))

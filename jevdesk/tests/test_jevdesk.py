@@ -286,3 +286,14 @@ def test_web_state_empty_and_filled_and_readonly(tmp_path):
     with pytest.raises(Exception):
         ro.execute("DELETE FROM trades")        # nur lesend
     assert "textContent" in web.PAGE and "innerHTML" not in web.PAGE   # Token-Namen nie als HTML einsetzen
+
+
+def test_web_background_serves_and_tolerates_busy_port(tmp_path):
+    import urllib.request
+    from jevdesk import web
+    srv = web.start_background(port=0, db_path=tmp_path / "x.db")
+    port = srv.server_address[1]
+    body = urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=3).read()
+    assert json.loads(body)["empty"] is True
+    assert web.start_background(port=port) is None      # belegt -> kein Absturz
+    srv.shutdown()

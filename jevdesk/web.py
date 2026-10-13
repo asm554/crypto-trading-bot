@@ -136,6 +136,20 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def start_background(port: int = 8765, db_path=None):
+    """Startet die Seite im Hintergrund-Thread (fuer `jevdesk run`). Port belegt -> still ueberspringen."""
+    import threading
+    Handler.db_path = db_path
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError as e:
+        print(f"Oberflaeche nicht gestartet (Port {port} belegt?): {e}")
+        return None
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    print(f"Oberflaeche: http://127.0.0.1:{port}")
+    return srv
+
+
 def serve(port: int = 8765, db_path=None):
     Handler.db_path = db_path
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)   # nur localhost
