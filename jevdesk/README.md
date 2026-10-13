@@ -35,6 +35,7 @@ pip install requests
 printf 'TELEGRAM_BOT_TOKEN=...\nTELEGRAM_CHAT_ID=...\nTYPESAFE_API_KEY=...\n' > jevdesk/.env && chmod 600 jevdesk/.env
 python -m jevdesk once      # ein Zyklus zum Testen
 python -m jevdesk run       # Dauerbetrieb: Zyklus alle 15 min, Monitor alle 5 min, Telegram-Polling
+python -m jevdesk web       # lokale Oberfläche: http://127.0.0.1:8765 (nur lesend)
 python -m pytest jevdesk/tests -q
 ```
 

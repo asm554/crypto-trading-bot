@@ -219,3 +219,19 @@ def test_telegram_commands(db):
     assert "Konto (Paper)" in telegram.handle(db, PAPER, "/status")
     assert telegram.handle(db, PAPER, "/report").startswith("Geschlossene")
     assert telegram.handle(db, PAPER, "hallo") is None
+
+
+# --- Web-Oberflaeche ------------------------------------------------------
+def test_web_state_empty_and_filled_and_readonly(tmp_path):
+    from jevdesk import web
+    assert web.state(tmp_path / "missing.db")["empty"] is True
+    p = tmp_path / "w.db"
+    db = book.connect(p)
+    desk.run_once(db, rj(), FakeSrc([tok(ticker="<script>x</script>")]), notify=lambda m: None, now=NOW)
+    s = web.state(p)
+    assert s["position"]["ticker"] == "<script>x</script>" and s["trades"][0]["answers"]["shape"]
+    assert s["cycles"][0]["outcome"].startswith("ENTRY")
+    ro = web._ro(p)
+    with pytest.raises(Exception):
+        ro.execute("DELETE FROM trades")        # nur lesend
+    assert "textContent" in web.PAGE and "innerHTML" not in web.PAGE   # Token-Namen nie als HTML einsetzen

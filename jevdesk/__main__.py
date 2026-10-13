@@ -20,9 +20,13 @@ def make_judge():
 
 def main():
     p = argparse.ArgumentParser(prog="jevdesk", description="Paper-Desk fuer frische DEX-Token (keine Orders)")
-    p.add_argument("cmd", choices=["run", "once", "monitor", "status", "pos", "report"])
+    p.add_argument("cmd", choices=["run", "once", "monitor", "status", "pos", "report", "web"])
     a = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    if a.cmd == "web":
+        from . import web
+        web.serve()
+        return
     db = book.connect()
     if a.cmd == "run":
         desk.run_forever(db, make_judge(), desk.LiveSources(), PAPER, CYCLE_SECONDS, MONITOR_SECONDS)
